@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 chroma_db/
 chroma_db_web/
+chroma_langchain/
 .gradio/
 .idea/
 .vscode/

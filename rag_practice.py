@@ -1,5 +1,5 @@
 # 首先是导入数据库
-import os 
+import os
 # 只导入某个函数
 from dotenv import load_dotenv
 import requests
@@ -13,12 +13,29 @@ DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions"
 
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-# from langchain_community.document_loaders import PdfLoader
+from langchain_community.document_loaders import TextLoader
 from langchain_community.document_loaders import PyPDFLoader
 # 加载文档
-# loader = TextLoader("data/test.txt", encoding="utf-8")
-loader = PyPDFLoader("data/dictionary.pdf")
-documents = loader.load()
+# # loader = TextLoader("data/test.txt", encoding="utf-8")
+# loader = PyPDFLoader("data/dictionary.pdf")
+all_documents = []
+# 加载 TXT
+try:
+    loader_txt = TextLoader("data/test.txt", encoding="utf-8")
+    all_documents.extend(loader_txt.load())
+    print("加载 test.txt 成功")
+except FileNotFoundError:
+    print("test.txt 不存在或加载失败")
+
+# 加载 PDF
+try:
+    loader_pdf = PyPDFLoader("data/dictionary.pdf")
+    all_documents.extend(loader_pdf.load())
+    print("加载 dictionary.pdf 成功")
+except FileNotFoundError:
+    print("dictionary.pdf 不存在或加载失败")
+
+documents = all_documents
 # 先把文档获取，进行切片
 text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
 chunks = text_splitter.split_documents(documents)
@@ -68,8 +85,14 @@ collection_name = "my_knowledge_base_practice"
 
 
 
-#建立向量化的数据
-collection = client.get_or_create_collection(
+# 每次运行重新创建向量库（避免旧数据干扰）
+try:
+    client.delete_collection(collection_name)
+    print("[INFO] 已删除旧的向量库")
+except:
+    pass
+
+collection = client.create_collection(
     name=collection_name,
     embedding_function=SiliconFlowEmbeddingFunction()
 )
@@ -124,9 +147,11 @@ def ask_question(question):
 # 先是运行方法
 
 if __name__ == '__main__':
-    question = ['前端的跨域方案是什么？']
-    for q in question:
-        print(f'问题:{q}')
-        answer = ask_question(q)
+    while True:
+        question = input("\n请输入问题（输入 q 退出）：")
+        if question.lower() == 'q':
+            break
+        print(f'问题:{question}')
+        answer = ask_question(question)
         print(f'答案:{answer}')
 
