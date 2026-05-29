@@ -8,3 +8,13 @@ chroma_langchain/
 .gradio/
 .idea/
 .vscode/
+modelscope_cache/
+all_chunks.json
+chroma_contents_crossdomain.json
+cross_chunks_current.txt
+pdf_debug.txt
+retrieval_*.json
+retrieval_*.txt
+state.json
+test_*.txt
+final_*.txt
