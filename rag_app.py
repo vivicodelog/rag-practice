@@ -2,6 +2,7 @@
 import os
 import json
 import hashlib
+from httpx import get
 import requests
 from dotenv import load_dotenv
 import gradio as gr
@@ -439,6 +440,7 @@ def upload_document(file):
 
         try:
             rebuild_vectorstore()
+            get_document_df()
         except Exception as e:
             # 重建失败 → 回滚：删掉已保存的文件和 manifest 记录
             if os.path.exists(dest_path):
