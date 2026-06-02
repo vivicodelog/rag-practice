@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 import gradio as gr
 from datetime import datetime
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
+from langchain_community.document_loaders import TextLoader, PyPDFLoader, Docx2txtLoader, UnstructuredMarkdownLoader
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -75,7 +77,7 @@ def sync_manifest():
     current_files = {}#current_files = 硬盘上真实存在的文件
     for fname in sorted(os.listdir(DATA_DIR)):
         ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''#取出文件的扩展名（比如 .pdf 就取出 pdf），转成小写方便比较
-        if ext not in ('txt', 'pdf'):
+        if ext not in ('txt', 'pdf', 'docx', 'md', 'markdown'):
             continue
         path = os.path.join(DATA_DIR, fname)#拼接出文件的完整路径，比如 data/报告.pdf
         if os.path.isfile(path):# # 检查是不是文件（不是文件夹）
@@ -123,12 +125,21 @@ class FileSource(BaseSource):#FileSource 是 BaseSource 的一个具体实现，
         docs = []#存放的所有文档a
         for fname in os.listdir(self.directory):
             ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''
-            if ext not in ('txt', 'pdf'):
+            if ext not in ('txt', 'pdf', 'docx', 'md'):
                 continue
             path = os.path.join(self.directory, fname)#获取完整路径把文件夹路径和文件名拼接到一起，形成完整的文件路径
             if not os.path.isfile(path):
                 continue
-            loader = TextLoader(path, encoding="utf-8") if ext == "txt" else PyPDFLoader(path)#根据文件扩展名选择不同的加载器
+            if ext == "txt":
+                loader = TextLoader(path, encoding="utf-8")
+            elif ext == "pdf":
+                loader = PyPDFLoader(path)
+            elif ext == "docx":
+                loader = Docx2txtLoader(path)
+            elif ext in ("md", "markdown"):
+                loader = UnstructuredMarkdownLoader(path)
+            else:
+                continue  # 不支持的格式跳过
             loaded = loader.load()#加载文档内容，加载文档块
             for doc in loaded:
                 doc_id = fname + "::" + doc.page_content[:50]
@@ -140,7 +151,7 @@ class FileSource(BaseSource):#FileSource 是 BaseSource 的一个具体实现，
         combined = ""
         for fname in sorted(os.listdir(self.directory)):
             ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''
-            if ext not in ('txt', 'pdf'):
+            if ext not in ('txt', 'pdf', 'docx', 'md'):
                 continue
             path = os.path.join(self.directory, fname)
             if os.path.isfile(path):
@@ -362,7 +373,13 @@ def search_docs(query: str) -> str:
     # 2. 向量库结果 → 取相似度分数（retriever 可以返回 score）
     # 3. 两边归一化后统一排序，不分先后
     # 这样第一条就是"综合最相关"的，而不是"关键词最多的"
-    return "\n\n".join(doc.page_content for doc in docs[:6])
+    # 把结果格式化：在每个段落前标明来源文档
+    formatted = []
+    for doc in docs[:6]:
+        source = doc.metadata.get("source", "")
+        fname = os.path.basename(source) if source else "未知来源"
+        formatted.append(f"【来源：{fname}】\n{doc.page_content}")
+    return "\n\n".join(formatted)
 
 
 tools = [get_weather, search_docs]
@@ -370,7 +387,8 @@ tools = [get_weather, search_docs]
 system_prompt = """你是一个问答助手。
 - 如果用户的问题在本地知识库中可能有答案，先用 search_docs 工具搜索
 - 如果用户询问天气等实时信息，用 get_weather 工具
-- 如果知识库和工具都没有答案，请说不知道"""
+- 如果知识库和工具都没有答案，请说不知道
+- 回答时请说明信息来源（例如：根据【xxx.txt】中的内容，...）"""
 
 agent = create_agent(llm, tools, system_prompt=system_prompt)
 
@@ -398,17 +416,24 @@ def get_delete_choices():
     return [item["filename"] for item in manifest]
 
 
+def update_delete_dropdown():
+    """刷新下拉框，清空选中值"""
+    choices = get_delete_choices()
+    return gr.Dropdown(choices=choices, value=None, interactive=True)
+
+
 def upload_document(file):
     """保存文件 → 更新清单 → 重建向量库"""
+    drop = update_delete_dropdown  # 简短别名，后面每处都要用
     try:
         # Gradio 不同版本传文件的方式不同，统一处理
         if file is None:
-            return "请选择文件", get_document_df(), get_delete_choices()
+            return "请选择文件", get_document_df(), drop()
         # 某些 Gradio 版本会把单文件包在列表里
         if isinstance(file, (list, tuple)):
             file = file[0] if file else None
         if file is None:
-            return "请选择文件", get_document_df(), get_delete_choices()
+            return "请选择文件", get_document_df(), drop()
 
         # Gradio 6 的 UploadButton 传的是文件路径字符串，不是 FileData 对象
         if isinstance(file, str):
@@ -420,12 +445,12 @@ def upload_document(file):
 
         filename = original_name
         ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
-        if ext not in ('txt', 'pdf'):
-            return "仅支持 TXT 和 PDF 文件", get_document_df(), get_delete_choices()
+        if ext not in ('txt', 'pdf', 'docx', 'md',"doc"):
+            return "仅支持 TXT 和 PDF 文件", get_document_df(), drop()
 
         manifest = load_manifest()
         if any(item["filename"] == filename for item in manifest):
-            return f"文件 '{filename}' 已存在，请先删除旧文件", get_document_df(), get_delete_choices()
+            return f"文件 '{filename}' 已存在，请先删除旧文件", get_document_df(), drop()
 
         dest_path = os.path.join(DATA_DIR, filename)
         with open(file_path, "rb") as src, open(dest_path, "wb") as dst:
@@ -450,18 +475,19 @@ def upload_document(file):
             save_manifest(manifest)
             raise  # 重新抛出，让外层 except 捕获
 
-        return f"✓ 文件 '{filename}' 上传成功，向量库已重建", get_document_df(), get_delete_choices()
+        return f"✓ 文件 '{filename}' 上传成功，向量库已重建", get_document_df(), drop()
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return f"❌ 上传失败：{type(e).__name__}: {e}", get_document_df(), get_delete_choices()
+        return f"❌ 上传失败：{type(e).__name__}: {e}", get_document_df(), drop()
 
 
 def delete_document(filename):
     """删除文件 → 更新清单 → 重建向量库"""
+    drop = update_delete_dropdown
     try:
         if not filename:
-            return get_document_df(), get_delete_choices(), "请选择要删除的文件"
+            return get_document_df(), drop(), "请选择要删除的文件"
 
         manifest = load_manifest()
         manifest = [item for item in manifest if item["filename"] != filename]
@@ -473,11 +499,11 @@ def delete_document(filename):
 
         rebuild_vectorstore()
 
-        return get_document_df(), get_delete_choices(), f"✓ 文件 '{filename}' 已删除，向量库已重建"
+        return get_document_df(), drop(), f"✓ 文件 '{filename}' 已删除，向量库已重建"
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return get_document_df(), get_delete_choices(), f"❌ 删除失败：{type(e).__name__}: {e}"
+        return get_document_df(), drop(), f"❌ 删除失败：{type(e).__name__}: {e}"
 
 
 def refresh_list():
@@ -551,12 +577,12 @@ with gr.Blocks(title="RAG 智能问答") as demo:
     # ---------- Tab 2: 文档管理 ----------
     with gr.Tab("📁 文档管理"):
         gr.Markdown("## 📤 上传文档")
-        gr.Markdown("支持 **TXT** 和 **PDF** 格式，上传后自动重建知识库")
+        gr.Markdown("支持 **TXT** 、**DOC**和 **PDF** 格式，上传后自动重建知识库")
 
         with gr.Row():
             upload_btn = gr.UploadButton(
                 "选择文件上传",
-                file_types=[".txt", ".pdf"],
+                file_types=[".txt", ".pdf",".doc",".docx"],
                 file_count="single",
                 variant="primary"
             )
@@ -601,7 +627,7 @@ with gr.Blocks(title="RAG 智能问答") as demo:
             None,
             doc_list
         ).then(
-            get_delete_choices,
+            update_delete_dropdown,
             None,
             delete_dropdown
         )
