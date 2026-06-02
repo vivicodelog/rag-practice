@@ -251,13 +251,26 @@ def need_rebuild(source, state_file):#source - 文档源对象（能计算指纹
         return False, vectordb_from_existing()
     print("  检测到文档变化，重建向量库...")
     return True, None
+# ① 首次运行 → need_rebuild 返回 (True, None)
+#    if True or True → 重建 ✅
 
+# ② 文件没变 + 向量库还在 → (False, <Chroma对象>)
+#    if False or False → 跳过 ✅
+
+# ③ 文件变了 → (True, None)
+#    if True or True → 重建 ✅
+
+# ④ 文件没变 + 向量库被删了 → (False, None)
+#    if False or True → 重建 ✅（兜住）
 
 # ==================== 初始化 ====================
 os.makedirs(DATA_DIR, exist_ok=True)
 sync_manifest()
 
-source = FileSource(DATA_DIR)
+source = FileSource(DATA_DIR)#创建一个"文件源"对象
+
+##  should_rebuild = False
+#  vectordb       = 向量库
 should_rebuild, vectordb = need_rebuild(source, SYNC_STATE_FILE)
 
 if should_rebuild or vectordb is None:
@@ -290,7 +303,7 @@ def get_weather(city: str) -> str:
     except:
         return "获取天气失败"
 
-
+#           把向量数据库转换成检索器
 retriever = vectordb.as_retriever(search_kwargs={"k": 6})
 
 # 加载所有 chunks 用于关键词回退搜索------向量库有问题时，json文件兜底的地方
@@ -386,50 +399,83 @@ def get_delete_choices():
 
 def upload_document(file):
     """保存文件 → 更新清单 → 重建向量库"""
-    if file is None:
-        return "请选择文件", get_document_df(), get_delete_choices()
+    try:
+        # Gradio 不同版本传文件的方式不同，统一处理
+        if file is None:
+            return "请选择文件", get_document_df(), get_delete_choices()
+        # 某些 Gradio 版本会把单文件包在列表里
+        if isinstance(file, (list, tuple)):
+            file = file[0] if file else None
+        if file is None:
+            return "请选择文件", get_document_df(), get_delete_choices()
 
-    filename = file.orig_name or os.path.basename(file.path)
-    ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
-    if ext not in ('txt', 'pdf'):
-        return "仅支持 TXT 和 PDF 文件", get_document_df(), get_delete_choices()
+        # Gradio 6 的 UploadButton 传的是文件路径字符串，不是 FileData 对象
+        if isinstance(file, str):
+            file_path = file
+            original_name = os.path.basename(file)
+        else:
+            file_path = file.path
+            original_name = file.orig_name or os.path.basename(file_path)
 
-    manifest = load_manifest()
-    if any(item["filename"] == filename for item in manifest):
-        return f"文件 '{filename}' 已存在，请先删除旧文件", get_document_df(), get_delete_choices()
+        filename = original_name
+        ext = filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+        if ext not in ('txt', 'pdf'):
+            return "仅支持 TXT 和 PDF 文件", get_document_df(), get_delete_choices()
 
-    dest_path = os.path.join(DATA_DIR, filename)
-    with open(file.path, "rb") as src, open(dest_path, "wb") as dst:
-        dst.write(src.read())
+        manifest = load_manifest()
+        if any(item["filename"] == filename for item in manifest):
+            return f"文件 '{filename}' 已存在，请先删除旧文件", get_document_df(), get_delete_choices()
 
-    manifest.append({
-        "filename": filename,
-        "size": os.path.getsize(dest_path),
-        "upload_date": datetime.now().isoformat()
-    })
-    save_manifest(manifest)
+        dest_path = os.path.join(DATA_DIR, filename)
+        with open(file_path, "rb") as src, open(dest_path, "wb") as dst:
+            dst.write(src.read())
 
-    rebuild_vectorstore()
+        manifest.append({
+            "filename": filename,
+            "size": os.path.getsize(dest_path),
+            "upload_date": datetime.now().isoformat()
+        })
+        save_manifest(manifest)
 
-    return f"✓ 文件 '{filename}' 上传成功，向量库已重建", get_document_df(), get_delete_choices()
+        try:
+            rebuild_vectorstore()
+        except Exception as e:
+            # 重建失败 → 回滚：删掉已保存的文件和 manifest 记录
+            if os.path.exists(dest_path):
+                os.remove(dest_path)
+            manifest = load_manifest()
+            manifest = [item for item in manifest if item["filename"] != filename]
+            save_manifest(manifest)
+            raise  # 重新抛出，让外层 except 捕获
+
+        return f"✓ 文件 '{filename}' 上传成功，向量库已重建", get_document_df(), get_delete_choices()
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return f"❌ 上传失败：{type(e).__name__}: {e}", get_document_df(), get_delete_choices()
 
 
 def delete_document(filename):
     """删除文件 → 更新清单 → 重建向量库"""
-    if not filename:
-        return get_document_df(), get_delete_choices(), "请选择要删除的文件"
+    try:
+        if not filename:
+            return get_document_df(), get_delete_choices(), "请选择要删除的文件"
 
-    manifest = load_manifest()
-    manifest = [item for item in manifest if item["filename"] != filename]
-    save_manifest(manifest)
+        manifest = load_manifest()
+        manifest = [item for item in manifest if item["filename"] != filename]
+        save_manifest(manifest)
 
-    filepath = os.path.join(DATA_DIR, filename)
-    if os.path.exists(filepath):
-        os.remove(filepath)
+        filepath = os.path.join(DATA_DIR, filename)
+        if os.path.exists(filepath):
+            os.remove(filepath)
 
-    rebuild_vectorstore()
+        rebuild_vectorstore()
 
-    return get_document_df(), get_delete_choices(), f"✓ 文件 '{filename}' 已删除，向量库已重建"
+        return get_document_df(), get_delete_choices(), f"✓ 文件 '{filename}' 已删除，向量库已重建"
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return get_document_df(), get_delete_choices(), f"❌ 删除失败：{type(e).__name__}: {e}"
 
 
 def refresh_list():
@@ -445,9 +491,13 @@ def chat_fn(message, history):
     MAX_ROUNDS = 4
 
     if len(history) > MAX_ROUNDS:
-        old = history[:-MAX_ROUNDS]
-        recent = history[-MAX_ROUNDS:]
-
+        old = history[:-MAX_ROUNDS]#旧的部分（需要压缩） # 从头开始到 end（不包含 end）
+        recent = history[-MAX_ROUNDS:]#新的部分（需要保留）# 最后 n 个元素
+                                                        #list[start:end]  # start 开始索引（包含），end 结束索引（不包含）
+                                                        # list[:end]       # 从头开始到 end（不包含 end）
+                                                        # list[start:]     # 从 start 开始到结尾
+                                                        # list[-n:]        # 最后 n 个元素
+                                                        # list[:-n]        # 除了最后 n 个元素之外的所有元素
         summary_prompt = "请将以下对话压缩为一句简短摘要：\n"
         for msg in old:
             if msg["role"] == "user":
@@ -468,16 +518,16 @@ def chat_fn(message, history):
 
     for event in agent.stream(
         {"messages": messages},
-        stream_mode="values",
-    ):
-        last_msg = event["messages"][-1]
+        stream_mode="values",#返回完整的事件值
+    ):#流式调用 AI 代理
+        last_msg = event["messages"][-1]#获取最新消息
         msg_type = getattr(last_msg, "type", "")
         if msg_type in ("human", "tool"):
             continue
         if msg_type == "ai" and getattr(last_msg, "tool_calls", None):
-            continue
+            continue## AI 在调用工具，不是最终回答
         if hasattr(last_msg, "content") and last_msg.content:
-            yield last_msg.content
+            yield last_msg.content#yield - 生成器，逐步输出内容
 
 
 # ==================== 构建 UI ====================
