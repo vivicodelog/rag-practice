@@ -2,7 +2,6 @@
 import os
 import json
 import hashlib
-from httpx import get
 import requests
 from dotenv import load_dotenv
 import gradio as gr
@@ -12,7 +11,7 @@ from langchain_community.document_loaders import TextLoader, PyPDFLoader, Docx2t
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_deepseek import ChatDeepSeek
 from langchain_core.documents import Document
 from langchain_core.tools import tool
@@ -333,8 +332,28 @@ if os.path.exists(chunks_json):
 @tool
 def search_docs(query: str) -> str:
     """搜索本地知识库中的文档内容。当需要查找具体信息时调用此工具，传入搜索关键词。"""
-    docs = retriever.invoke(query)
+    # ========== 1. 向量检索（带相似度分数）==========
+    # similarity_search_with_score 返回 [(Document, L2距离)]
+    # L2 距离越小表示越相似，范围一般 0~2（对归一化后的向量）
+    vector_results = vectordb.similarity_search_with_score(query, k=6)
 
+    # 把 L2 距离转为 0~1 的相似度分数（1 = 最相似）
+    vector_scored = []
+    if vector_results:
+        # 找出距离的最小值和最大值，做归一化
+        distances = [d for _, d in vector_results]
+        min_dist, max_dist = min(distances), max(distances)
+        spread = max_dist - min_dist
+        for doc, dist in vector_results:
+            if spread > 0:
+                sim = 1 - (dist - min_dist) / spread  # 最近→1，最远→0
+            else:
+                sim = 1.0  # 所有距离相等
+            source = doc.metadata.get("source", "")
+            vector_scored.append((sim, doc.page_content, source))
+
+    # ========== 2. 关键词匹配（带分数）==========
+    kw_scored = []
     if _all_chunks:
         try:
             import jieba
@@ -347,38 +366,39 @@ def search_docs(query: str) -> str:
             words = []
 
         kw_set = set(words)
-        scored = []
+        # 关键词总长度（用于归一化）
+        query_keyword_len = sum(len(kw) for kw in kw_set) if kw_set else 1
+
         for item in _all_chunks:
             content = item["content"] if isinstance(item, dict) else item.page_content
-            score = sum(len(kw) for kw in kw_set if kw in content)
-            if score > 0:
-                scored.append((score, content, item.get("metadata", {})))
+            matched_len = sum(len(kw) for kw in kw_set if kw in content)
+            if matched_len > 0:
+                kw_score = matched_len / query_keyword_len  # 0~1
+                source = item.get("metadata", {}).get("source", "") if isinstance(item, dict) else ""
+                kw_scored.append((kw_score, content, source))
 
-        scored.sort(key=lambda x: -x[0])
-        seen = set()
-        kw_docs = [Document(page_content=c, metadata=m) for _, c, m in scored]
-        for d in kw_docs:
-            seen.add(d.page_content)
-        for d in docs:
-            if d.page_content not in seen:
-                kw_docs.append(d)
-        docs = kw_docs
-    # === 后续优化方向：统一排序 ===
-    # 目前是"关键词结果排前面，向量结果补后面"，
-    # 对模糊搜索（如"人工智能的应用"）不太公平——
-    # 向量库认为最相关的可能被关键词结果挤到后面。
-    #(先合并、再统一排序,但是需要向量库返回一下score,这个需要配置返回值)
-    ## 优化思路：
-    # 1. 关键词匹配 → 算一个 0~1 的得分（命中字数 / 总字数）
-    # 2. 向量库结果 → 取相似度分数（retriever 可以返回 score）
-    # 3. 两边归一化后统一排序，不分先后
-    # 这样第一条就是"综合最相关"的，而不是"关键词最多的"
-    # 把结果格式化：在每个段落前标明来源文档
+    # ========== 3. 合并结果：统一排序 ==========
+    merged = {}  # content -> {"score": float, "source": str}
+
+    # 加关键词结果
+    for score, content, source in kw_scored:
+        merged[content] = {"score": score, "source": source}
+
+    # 加向量结果（如果已存在，取最高分）
+    for score, content, source in vector_scored:
+        if content in merged:
+            merged[content]["score"] = max(merged[content]["score"], score)
+        else:
+            merged[content] = {"score": score, "source": source}
+
+    # 按综合分数降序排列
+    sorted_results = sorted(merged.items(), key=lambda x: -x[1]["score"])
+
+    # ========== 4. 格式化输出 ==========
     formatted = []
-    for doc in docs[:6]:
-        source = doc.metadata.get("source", "")
-        fname = os.path.basename(source) if source else "未知来源"
-        formatted.append(f"【来源：{fname}】\n{doc.page_content}")
+    for content, info in sorted_results[:6]:
+        fname = os.path.basename(info["source"]) if info["source"] else "未知来源"
+        formatted.append(f"【来源：{fname}】\n{content}")
     return "\n\n".join(formatted)
 
 
