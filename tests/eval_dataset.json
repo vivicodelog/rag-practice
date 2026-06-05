@@ -1,0 +1,92 @@
+[
+  {
+    "id": 1,
+    "question": "北京是哪个国家的首都？",
+    "reference_docs": ["test.txt"],
+    "category": "事实查询"
+  },
+  {
+    "id": 2,
+    "question": "北京有哪些著名景点？",
+    "reference_docs": ["test.txt"],
+    "category": "事实查询"
+  },
+  {
+    "id": 3,
+    "question": "北京最有名的美食是什么？",
+    "reference_docs": ["test.txt"],
+    "category": "事实查询"
+  },
+  {
+    "id": 4,
+    "question": "北京哪一年举办了冬奥会？",
+    "reference_docs": ["test.txt"],
+    "category": "事实查询"
+  },
+  {
+    "id": 5,
+    "question": "张三的生日是哪一天？",
+    "reference_docs": ["test.txt"],
+    "category": "事实查询"
+  },
+  {
+    "id": 6,
+    "question": "Java中Controller层的主要职责是什么？",
+    "reference_docs": ["java.txt"],
+    "category": "技术理解"
+  },
+  {
+    "id": 7,
+    "question": "Service层在分层架构中负责什么？",
+    "reference_docs": ["java.txt"],
+    "category": "技术理解"
+  },
+  {
+    "id": 8,
+    "question": "Mapper层只干什么事？",
+    "reference_docs": ["java.txt"],
+    "category": "技术理解"
+  },
+  {
+    "id": 9,
+    "question": "分层架构有什么好处？",
+    "reference_docs": ["java.txt"],
+    "category": "技术理解"
+  },
+  {
+    "id": 10,
+    "question": "用餐厅比喻，Controller对应什么角色？",
+    "reference_docs": ["java.txt"],
+    "category": "技术理解"
+  },
+  {
+    "id": 11,
+    "question": "智能文档助手Pro的个人版价格是多少？",
+    "reference_docs": ["产品介绍1.txt"],
+    "category": "产品信息"
+  },
+  {
+    "id": 12,
+    "question": "智能文档助手Pro有哪些功能？",
+    "reference_docs": ["产品介绍1.txt"],
+    "category": "产品信息"
+  },
+  {
+    "id": 13,
+    "question": "技术支持电话是多少？",
+    "reference_docs": ["产品介绍1.txt"],
+    "category": "产品信息"
+  },
+  {
+    "id": 14,
+    "question": "企业版的保修政策是什么？",
+    "reference_docs": ["产品介绍1.txt"],
+    "category": "产品信息"
+  },
+  {
+    "id": 15,
+    "question": "单个文件大小有限制吗？限制是多少？",
+    "reference_docs": ["产品介绍1.txt"],
+    "category": "产品信息"
+  }
+]
