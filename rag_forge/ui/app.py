@@ -11,7 +11,7 @@ from datetime import datetime
 import gradio as gr
 from loguru import logger
 
-from rag_forge.agent.agent import build_agent, chat, create_llm
+from rag_forge.agent.agent import build_agent, chat, create_llm, system_prompt
 from rag_forge.agent.tools import get_weather, init_tools, search_docs
 from rag_forge.config import settings
 from rag_forge.data.loader import FileSource, build_vectorstore, need_rebuild
@@ -32,15 +32,26 @@ embeddings = create_embeddings(
 )
 
 source = FileSource(settings.DATA_DIR)
-should_rebuild, vectordb = need_rebuild(source, settings.SYNC_STATE_FILE)
+should_rebuild, vectordb, old_state = need_rebuild(source, settings.SYNC_STATE_FILE)
 
 if should_rebuild or vectordb is None:
-    vectordb, all_chunks = build_vectorstore(source, embeddings, settings.CHROMA_DIR)
-    # 写同步状态
+    # 加载旧的 chunks（用于增量合并）
+    old_chunks = []
+    chunks_path = os.path.join(settings.CHROMA_DIR, "chunks.json")
+    if os.path.exists(chunks_path):
+        with open(chunks_path, "r", encoding="utf-8") as f:
+            old_chunks = json.load(f)
+
+    vectordb, all_chunks, file_md5s = build_vectorstore(
+        source, embeddings, settings.CHROMA_DIR,
+        old_state=old_state, old_chunks=old_chunks,
+    )
+    # 写同步状态（含每个文件的 MD5）
     os.makedirs(os.path.dirname(settings.SYNC_STATE_FILE), exist_ok=True)
     with open(settings.SYNC_STATE_FILE, "w", encoding="utf-8") as f:
         json.dump({
             "sync_key": source.get_sync_key(),
+            "files": file_md5s,
             "updated_at": datetime.now().isoformat()
         }, f, ensure_ascii=False, indent=2)
 else:
@@ -77,25 +88,7 @@ init_tools(vectordb, all_chunks, llm=llm, reranker=reranker)
 
 tools = [get_weather, search_docs]
 
-SYSTEM_PROMPT = """你是一个问答助手，根据知识库中的文档回答用户问题。
-
-【工作流程】
-1. 知识类问题 → 用 search_docs 搜索知识库，根据返回内容回答
-2. 天气等实时信息 → 用 get_weather
-3. 明显能用常识回答的问题（问候、闲聊等）→ 直接回答，不需要调工具
-
-【搜索结果的判断】
-- 如果 search_docs 找到了明确相关的内容 → 根据内容回答，说明来源
-- 如果 search_docs 返回空 → 告诉用户"知识库中没有找到相关信息"
-- 如果 search_docs 返回的内容与问题关联性不强、你不太确定是否找对了 →
-  可以反问用户具体是哪个文件，例如："我找到了一些相关信息，但不确定是否准确，请问这个信息在哪个文件里？"
-
-【回答格式】
-- 用自然流畅的语言
-- 开头说明来源：根据【文件名.扩展名】中的内容，……
-- 如果用了多个文件：根据【文件1.txt】和【文件2.pdf】中的内容，……"""
-
-agent = build_agent(llm, tools, system_prompt=SYSTEM_PROMPT)
+agent = build_agent(llm, tools, system_prompt=system_prompt)
 
 
 # ==================== 聊天包装 ====================
@@ -113,13 +106,29 @@ def rebuild_vectorstore():
     global vectordb, all_chunks
     sync_manifest(settings.DATA_DIR, settings.MANIFEST_FILE)
     s = FileSource(settings.DATA_DIR)
-    vectordb, all_chunks = build_vectorstore(s, embeddings, settings.CHROMA_DIR)
+
+    # 加载旧的 state 和 chunks（用于增量更新）
+    old_state = {}
+    old_chunks = []
+    if os.path.exists(settings.SYNC_STATE_FILE):
+        with open(settings.SYNC_STATE_FILE, "r", encoding="utf-8") as f:
+            old_state = json.load(f)
+    chunks_path = os.path.join(settings.CHROMA_DIR, "chunks.json")
+    if os.path.exists(chunks_path):
+        with open(chunks_path, "r", encoding="utf-8") as f:
+            old_chunks = json.load(f)
+
+    vectordb, all_chunks, file_md5s = build_vectorstore(
+        s, embeddings, settings.CHROMA_DIR,
+        old_state=old_state, old_chunks=old_chunks,
+    )
     init_tools(vectordb, all_chunks)
 
     os.makedirs(os.path.dirname(settings.SYNC_STATE_FILE), exist_ok=True)
     with open(settings.SYNC_STATE_FILE, "w", encoding="utf-8") as f:
         json.dump({
             "sync_key": s.get_sync_key(),
+            "files": file_md5s,
             "updated_at": datetime.now().isoformat()
         }, f, ensure_ascii=False, indent=2)
 
@@ -318,6 +327,15 @@ def create_app():
 
 def main():
     """启动入口"""
+    # 配置结构化日志：同时写文件（自动轮转）和终端
+    logger.add(
+        "rag_forge.log",
+        rotation="10 MB",
+        retention="30 days",
+        level="INFO",
+        encoding="utf-8",
+    )
+    logger.info("RAG-Forge 启动")
     app = create_app()
     app.launch()
 

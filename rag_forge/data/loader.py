@@ -22,6 +22,8 @@ from rag_forge.config import settings
 class BaseSource:
     """数据源基类。所有数据源继承这个类。"""
 
+    directory: str = ""  # 子类（FileSource）覆盖此值
+
     def get_documents(self):
         """返回 [(doc_id, text, metadata)]"""
         raise NotImplementedError
@@ -109,91 +111,173 @@ class DatabaseSource(BaseSource):
 
 # ==================== 向量库构建 ====================
 
-def build_vectorstore(source: BaseSource, embeddings, persist_dir: str):
+def get_file_md5s(directory: str) -> dict:
     """
-    从数据源读取文档 → 切分 → 存入 Chroma 向量库。
+    计算 data/ 下每个文件的 MD5，返回 {filename: md5}。
+
+    用于增量更新：对比新旧 MD5，就知道哪些文件变了。
+    """
+    file_md5s = {}
+    for fname in os.listdir(directory):
+        ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''
+        if ext not in ('txt', 'pdf', 'docx', 'md'):
+            continue
+        path = os.path.join(directory, fname)
+        if os.path.isfile(path):
+            with open(path, "rb") as f:
+                file_md5s[fname] = hashlib.md5(f.read()).hexdigest()
+    return file_md5s
+
+
+def build_vectorstore(source: BaseSource, embeddings, persist_dir: str,
+                       old_state: dict | None = None,
+                       old_chunks: list | None = None):
+    """
+    构建向量库（支持全量 / 增量两种模式）。
 
     参数:
-        source: BaseSource 子类实例（如 FileSource）
+        source: 数据源
         embeddings: 嵌入模型
         persist_dir: Chroma 持久化目录
+        old_state: sync_state.json 的旧内容（含 per-file MD5）
+                   = None → 全量构建
+                   ≠ None → 增量构建
+        old_chunks: 旧的 chunks.json 内容（增量时保留没变的部分）
 
     返回:
-        (vectordb, all_chunks)
-        vectordb: Chroma 实例
-        all_chunks: 所有文本块列表，格式 [{"content": str, "metadata": dict}]
+        (vectordb, all_chunks, file_md5s)
     """
-    #   1. source.get_documents() 获取原始文档
-    #   2. RecursiveCharacterTextSplitter 切分（chunk_size=300, overlap=30）
-    #   3. Chroma.from_documents() 存入向量库
-    #   4. 保存 chunks.json 供关键词搜索使用
-    #   5. 返回 (vectordb, all_chunks)
-    #
-    # 提示：从 rag_app.py 的 build_vectorstore() 复制
-    logger.info("加载文档...")
-    raw_docs = source.get_documents()#获取所有文档
+    raw_docs = source.get_documents()
     if not raw_docs:
         raise Exception("没有找到任何文档")
+
+    # ---- 增量模式：找出新增/修改/删除的文件 ----
+    current_md5s = get_file_md5s(source.directory)
+    changed_files = set()
+
+    if old_state is not None and "files" in old_state:
+        old_md5s = old_state["files"]
+        for fname, md5 in current_md5s.items():
+            if fname not in old_md5s or old_md5s[fname] != md5:
+                changed_files.add(fname)
+        for fname in old_md5s:
+            if fname not in current_md5s:
+                changed_files.add(fname)
+
+        if not changed_files:
+            # 没有变化，直接加载现有的
+            vectordb = Chroma(
+                embedding_function=embeddings,
+                persist_directory=persist_dir,
+            )
+            logger.info("  文档无变化，跳过重建")
+            return vectordb, (old_chunks or []), current_md5s
+
+        logger.info(f"  检测到 {len(changed_files)} 个文件变化，增量更新...")
+
+    # ---- 切分文档 ----
     logger.info("切分文档...")
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=30)
     all_chunks = []
-    for doc_id, text, meta in raw_docs:#参数（doc_id = "报告.pdf::报告内容前50字..."、text = "完整的报告内容..."、meta = {"source": "报告.pdf"}）
-        chunks = text_splitter.split_text(text)
-        for i, chunk in enumerate(chunks):#enumerate() 的作用： 同时获取索引和值
-            all_chunks.append((f"{doc_id}::chunks{i}", chunk, {**meta, "doc_id": doc_id}))
-            #追溯到原始文档，每个块都有唯一ID，知道是文档的第几个块     
-           
+    for doc_id, text, meta in raw_docs:
+        filename = os.path.basename(meta["source"])
+
+        # 增量模式下，没变化的文件跳过
+        if old_state is not None and filename not in changed_files:
+            continue
+
+        splitter = get_splitter(filename)
+        chunks = splitter.split_text(text)
+        for i, chunk in enumerate(chunks):
+            all_chunks.append((f"{doc_id}::chunk{i}", chunk, {**meta, "doc_id": doc_id}))
+
     logger.info(f"  切分为 {len(all_chunks)} 个片段")
 
     docs = [Document(page_content=c, metadata=m) for _, c, m in all_chunks]
-    chunks_dict = [{"content": d.page_content, "metadata": d.metadata} for d in docs]
+    new_chunks_dict = [{"content": d.page_content, "metadata": d.metadata} for d in docs]
 
-    vectordb = Chroma.from_documents(
-        documents=docs,
-        embedding=embeddings,
-        persist_directory=persist_dir,
-    )
+    if old_state is not None and os.path.exists(os.path.join(persist_dir, "chroma.sqlite3")):
+        # ======== 增量模式：删除旧的 + 添加新的 ========
+        vectordb = Chroma(
+            embedding_function=embeddings,
+            persist_directory=persist_dir,
+        )
 
+        # 1. 从 Chroma 删除已删除/修改文件的旧 chunks
+        for fname in changed_files:
+            file_path = os.path.join(source.directory, fname)
+            try:
+                # ChromaDB 原生支持按 metadata 过滤删除
+                vectordb._collection.delete(where={"source": file_path})
+                logger.info(f"  删除旧块: {fname}")
+            except Exception:
+                pass  # 文件可能不在 Chroma 里
+
+        # 2. 添加新 chunks
+        if docs:
+            vectordb.add_documents(docs)
+
+        # 3. 合并 chunks.json：保留没变的部分 + 新增的部分
+        merged_chunks = []
+        if old_chunks:
+            for c in old_chunks:
+                src = c.get("metadata", {}).get("source", "")
+                fname = os.path.basename(src)
+                if fname not in changed_files:
+                    merged_chunks.append(c)
+        merged_chunks.extend(new_chunks_dict)
+
+    else:
+        # ======== 全量模式：从头创建 ========
+        vectordb = Chroma.from_documents(
+            documents=docs,
+            embedding=embeddings,
+            persist_directory=persist_dir,
+        )
+        merged_chunks = new_chunks_dict
+
+    # 保存 chunks.json
     chunks_path = os.path.join(persist_dir, "chunks.json")
     with open(chunks_path, "w", encoding="utf-8") as f:
-        json.dump(chunks_dict, f, ensure_ascii=False, indent=2)
-    logger.info("向量数据库构建完成")
-    return vectordb, chunks_dict
+        json.dump(merged_chunks, f, ensure_ascii=False, indent=2)
+    logger.info(f"向量数据库构建完成（共 {len(merged_chunks)} 个块）")
+    return vectordb, merged_chunks, current_md5s
+
 
 def need_rebuild(source: BaseSource, sync_state_file: str):
     """
     检查文档是否有变化，决定是否重建。
 
-    比较 source.get_sync_key() 和 sync_state_file 中保存的 sync_key。
-    同时兜底检测向量库存不存在。
-
     返回:
-        (should_rebuild: bool, vectordb_or_None)
+        (should_rebuild: bool, vectordb_or_None, old_state: dict)
+        old_state 包含旧的文件 MD5 和 chunks，用于增量更新。
     """
-    #   1. 计算 source.get_sync_key()
-    #   2. 加载 sync_state_file 中的旧 sync_key
-    #   3. 如果一致且向量库文件存在 → 加载现有 Chroma → 返回 (False, vectordb)
-    #   4. 否则 → 返回 (True, None)
-    #
-    # 提示：从 rag_app.py 的 need_rebuild() + vectordb_from_existing() 复制
     current_key = source.get_sync_key()
     old_state = {}
     if os.path.exists(sync_state_file):
         with open(sync_state_file, "r", encoding="utf-8") as f:
             old_state = json.load(f)
+
     if old_state.get("sync_key") == current_key:
         logger.info("  文档无变化，跳过重建")
-        # 尝试加载现有向量库
         persist_dir = os.path.dirname(sync_state_file)
         if os.path.exists(os.path.join(persist_dir, "chroma.sqlite3")):
-            from langchain_chroma import Chroma
             from rag_forge.embedding.embed import create_embeddings
             vectordb = Chroma(
                 embedding_function=create_embeddings(),
                 persist_directory=persist_dir,
             )
-            return False, vectordb
-        return False, None
-    logger.info("  检测到文档变化，重建向量库...")
-    return True, None
+            return False, vectordb, old_state
+        return False, None, old_state
 
+    logger.info("  检测到文档变化，重建向量库...")
+    return True, None, old_state
+
+def get_splitter(filename: str):
+    ext = filename.rsplit(".", 1)[-1].lower()
+    if ext == "md":
+        from langchain_text_splitters import MarkdownHeaderTextSplitter
+        return MarkdownHeaderTextSplitter(headers_to_split_on=[("##", "章节")])
+    elif ext == "pdf":
+        return RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    else:  # txt, docx, 代码等
+        return RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=30)

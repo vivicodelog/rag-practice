@@ -356,13 +356,13 @@ def evaluate():
 
 ## Phase 4：生产级打磨 🔧
 
-### 4.1 增量更新
+### 4.1 增量更新（✅ 已完成）
 
-思路：
-1. 每个文件存 MD5 到 sync_state
-2. 只对新文件和 MD5 变化的文件重新索引
-3. 从 Chroma 按 `doc_id` 删除旧块
-4. 只添加新块
+核心改动：
+1. `loader.py` 新增 `get_file_md5s()` — 计算每个文件的 MD5
+2. `build_vectorstore()` 新增 `old_state` 参数 — 增量模式下只处理有变化的文件
+3. 上传/删除文件时，对比 MD5 → 只删除/添加变了的块，不动其他
+4. sync_state.json 现在记录每个文件的 MD5 指纹
 
 ### 4.2 结构化日志
 
@@ -390,21 +390,75 @@ pip install loguru
 
 ### 4.3 单元测试
 
-在 `tests/` 目录下写 pytest 测试：
-- `test_vector.py` — 向量检索返回格式正确
-- `test_keyword.py` — 关键词能找到确定匹配
-- `test_hybrid.py` — 混合检索不返回空
-- `test_reranker.py` — Rerank 后分数比之前高
+在 `tests/` 目录下写 pytest 测试。
+
+**准备工作：**
+```bash
+pip install pytest
+```
+
+**创建 `tests/test_retrieval.py`**，写 3 个简单测试：
+
+```python
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from rag_forge.retrieval.vector import vector_search
+from rag_forge.retrieval.keyword import keyword_search
+from rag_forge.retrieval.hybrid import hybrid_search
+
+
+def test_vector_returns_list():
+    """向量检索返回的是列表"""
+    results = vector_search("测试", vectordb, top_k=3)
+    assert isinstance(results, list)
+
+
+def test_keyword_finds_match():
+    """关键词能搜到确定内容"""
+    results = keyword_search("跨域", all_chunks, top_k=3)
+    assert len(results) > 0
+
+
+def test_hybrid_not_empty():
+    """混合检索不返回空"""
+    results = hybrid_search("测试", vectordb, all_chunks, top_k=3)
+    assert len(results) > 0
+```
+
+**运行测试：**
+```bash
+cd d:/rag-project
+pytest tests/ -v
+```
+
+**注意：**
+- `vectordb` 和 `all_chunks` 需要先在测试文件里初始化（参考 `runner.py` 的 `init_rag()`）
+- 如果嫌慢，可以只测 keyword（不需要加载 embedding 模型）
 
 ### 4.4 文档类型自适应切分
 
-| 类型 | 切分器 | 参数 |
-|------|--------|------|
-| TXT | RecursiveCharacterTextSplitter | 300/30 |
-| PDF | RecursiveCharacterTextSplitter | 按页分段 |
-| MD | MarkdownHeaderTextSplitter | 按 ## 标题 |
-| DOCX | RecursiveCharacterTextSplitter | 500/50 |
-| 代码 | RecursiveCharacterTextSplitter | 按函数切分 |
+当前所有文件都用 300 字固定切分，改成按文件类型用不同策略。
+
+**实现思路：**
+1. 在 `data/loader.py` 里加一个函数，根据文件后缀选切分器
+2. 不同类型的文件用不同参数
+
+```python
+def get_splitter(filename: str):
+    ext = filename.rsplit(".", 1)[-1].lower()
+    if ext == "md":
+        from langchain.text_splitter import MarkdownHeaderTextSplitter
+        return MarkdownHeaderTextSplitter(headers_to_split_on=[("##", "章节")])
+    elif ext == "pdf":
+        return RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    else:  # txt, docx, 代码等
+        return RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=30)
+```
+
+然后在 `build_vectorstore()` 里对每个文件调用 `get_splitter(file.filename)` 来切分。
+
+**验证方法：** 上传一个 `.md` 文件，看它是不是按 `##` 标题切成了正确的块数。
 
 ---
 
@@ -465,3 +519,501 @@ Phase 4 ────────────────────────
 4. 卡住了就对比两个文件，想清楚为什么这么改
 
 出了什么问题随时问我。
+
+---
+---
+
+## Phase 5：FastAPI 后端 🚀
+
+目标：把 `rag_forge/` 的核心能力包成 HTTP 接口，这样任何客户端（前端、移动端、第三方）都能调用。
+
+```
+rag-project/
+├── backend/                 # ← 新建
+│   ├── __init__.py
+│   ├── main.py              # FastAPI 应用入口
+│   ├── schemas.py           # 请求/响应数据模型
+│   └── router.py            # API 路由
+└── rag_forge/               # 核心库，不动
+```
+
+### Step 1 — 安装 FastAPI
+
+```bash
+pip install fastapi uvicorn
+```
+
+**验证：**
+```bash
+python -c "import fastapi; print(fastapi.__version__)"
+```
+
+### Step 2 — 创建 backend/schemas.py
+
+定义 API 的数据结构（Pydantic 模型），用类型注解自动校验参数：
+
+```python
+from pydantic import BaseModel
+from typing import Optional, List
+
+
+class ChatRequest(BaseModel):
+    question: str
+    history: Optional[List[dict]] = []
+
+
+class SourceItem(BaseModel):
+    filename: str
+    score: float
+    content: str
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    sources: List[SourceItem]
+
+
+class UploadResponse(BaseModel):
+    success: bool
+    message: str
+    total_docs: int
+
+
+class DeleteRequest(BaseModel):
+    filename: str
+
+
+class DeleteResponse(BaseModel):
+    success: bool
+    message: str
+```
+
+**你的任务：** 原样复制过去就行，这是固定结构。
+
+### Step 3 — 创建 backend/router.py
+
+写 API 路由，核心就是调 `rag_forge` 的函数：
+
+```python
+from fastapi import APIRouter, HTTPException
+from backend.schemas import ChatRequest, ChatResponse, SourceItem
+from rag_forge.retrieval.hybrid import hybrid_search
+
+router = APIRouter()
+
+
+@router.post("/chat", response_model=ChatResponse)
+def chat(request: ChatRequest):
+    """问答接口：接收问题，返回回答和来源"""
+    try:
+        # 1. 检索
+        results = hybrid_search(
+            request.question,
+            vectordb,       # ← 启动时注入
+            all_chunks,     # ← 启动时注入
+            reranker=reranker,
+        )
+        # 2. 格式化来源
+        sources = [
+            SourceItem(filename=s, score=score, content=c[:200])
+            for c, score, s in results
+        ]
+        # 3. 调 LLM 生成回答
+        answer = llm.invoke(f"问题：{request.question}\n\n文档：{results[0][0]}")
+        return ChatResponse(answer=answer.content, sources=sources)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/documents")
+def list_documents():
+    """列出所有文档"""
+    from rag_forge.data.manifest import sync_manifest
+    from rag_forge.config import settings
+    manifest = sync_manifest(settings.DATA_DIR, settings.MANIFEST_FILE)
+    return {"documents": [m.document for m in manifest]}
+
+
+@router.post("/documents")
+def add_document():
+    """上传文档（文件通过 multipart 上传）"""
+    # 待实现
+    return {"message": "待实现"}
+
+
+@router.get("/health")
+def health():
+    """健康检查"""
+    return {"status": "ok", "reranker": reranker is not None}
+```
+
+> **注意：** `vectordb`、`all_chunks`、`reranker`、`llm` 这些变量在 router.py 里还拿不到。需要 Step 4 处理。
+
+### Step 4 — 创建 backend/main.py
+
+主入口：初始化 RAG 组件，注入到 router，启动服务：
+
+```python
+import sys
+import os
+
+# 确保能搜到 rag_forge
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from backend.router import router
+
+# 1. 初始化 RAG 组件（这块跟 app.py 差不多）
+from rag_forge.config import settings
+from rag_forge.embedding.embed import create_embeddings
+from rag_forge.data.loader import FileSource, build_vectorstore
+from rag_forge.data.manifest import sync_manifest
+from rag_forge.retrieval.reranker import Reranker
+
+app = FastAPI(title="RAG-Forge API", version="1.0.0")
+
+# 2. 跨域（让前端能调）
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],      # 开发阶段允许所有来源
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 3. RAG 全局变量
+vectordb = None
+all_chunks = None
+reranker = None
+
+
+@app.on_event("startup")
+def startup():
+    """启动时加载模型和构建向量库"""
+    global vectordb, all_chunks, reranker
+
+    sync_manifest(settings.DATA_DIR, settings.MANIFEST_FILE)
+
+    embeddings = create_embeddings()
+    source = FileSource(settings.DATA_DIR)
+    vectordb, all_chunks = build_vectorstore(source, embeddings, settings.CHROMA_DIR)
+    print(f"向量库加载完成，共 {len(all_chunks)} 个块")
+
+    if settings.RERANK_ENABLED:
+        try:
+            reranker = Reranker()
+            print("Reranker 加载完成")
+        except Exception as e:
+            print(f"Reranker 加载失败，跳过：{e}")
+
+    # 把全局变量注入到 router 模块
+    import backend.router as r
+    r.vectordb = vectordb
+    r.all_chunks = all_chunks
+    r.reranker = reranker
+
+
+# 4. 注册路由
+app.include_router(router)
+```
+
+**验证：**
+```bash
+cd d:/rag-project
+python -m uvicorn backend.main:app --reload --port 8000
+```
+
+浏览器打开 `http://localhost:8000/docs`，你会看到 Swagger 交互式文档页面——这是 FastAPI 自动生成的，可以在这里直接测试接口。
+
+### Step 5 — 实现文件上传接口
+
+在 `backend/router.py` 加一个上传端点：
+
+```python
+from fastapi import UploadFile, File
+import shutil
+
+
+@router.post("/upload", response_model=UploadResponse)
+async def upload_file(file: UploadFile = File(...)):
+    """上传文档文件"""
+    try:
+        # 1. 保存文件到 data/
+        file_path = os.path.join(settings.DATA_DIR, file.filename)
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+
+        # 2. 重建向量库
+        embeddings = create_embeddings()
+        source = FileSource(settings.DATA_DIR)
+        vectordb, all_chunks = build_vectorstore(source, embeddings, settings.CHROMA_DIR)
+
+        # 3. 更新 router 里的全局变量
+        import backend.router as r
+        r.vectordb = vectordb
+        r.all_chunks = all_chunks
+
+        return UploadResponse(success=True, message=f"{file.filename} 上传成功", total_docs=len(all_chunks))
+    except Exception as e:
+        return UploadResponse(success=False, message=str(e), total_docs=0)
+```
+
+✅ **Phase 5 完成标志：**
+```bash
+curl http://localhost:8000/health
+# 返回 {"status": "ok", "reranker": false}
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question": "什么是跨域"}'
+# 返回回答 + 来源
+```
+
+---
+
+## Phase 6：Vue3 前端 🎨
+
+目标：一个极简的聊天界面 + 文档管理页面，调 Phase 5 的 API。
+
+```
+rag-project/
+├── frontend/                 # ← 新建
+│   ├── index.html            # 入口
+│   ├── package.json
+│   ├── vite.config.js
+│   ├── App.vue               # 主组件（选项卡切换）
+│   ├── api.js                # 封装 API 调用
+│   ├── ChatView.vue          # 聊天页面
+│   └── DocManager.vue        # 文档管理页面
+└── backend/                  # 上面建的后端
+```
+
+### Step 1 — 初始化 Vue3 + Vite 项目
+
+```bash
+cd d:/rag-project
+npm create vite@latest frontend -- --template vue
+cd frontend
+npm install
+```
+
+这会生成 `frontend/` 的基本架子，然后安装依赖。
+
+### Step 2 — 创建 api.js
+
+封装所有后端调用，一个文件搞定：
+
+```javascript
+// frontend/src/api.js
+const BASE = "http://localhost:8000"
+
+export async function chat(question, history = []) {
+  const res = await fetch(`${BASE}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, history }),
+  })
+  return res.json()
+}
+
+export async function getDocuments() {
+  const res = await fetch(`${BASE}/documents`)
+  return res.json()
+}
+
+export async function uploadDocument(file) {
+  const form = new FormData()
+  form.append("file", file)
+  const res = await fetch(`${BASE}/upload`, { method: "POST", body: form })
+  return res.json()
+}
+
+export async function healthCheck() {
+  const res = await fetch(`${BASE}/health`)
+  return res.json()
+}
+```
+
+### Step 3 — 创建 ChatView.vue
+
+聊天界面，核心逻辑：
+
+```vue
+<template>
+  <div class="chat-container">
+    <div class="messages">
+      <div v-for="(msg, i) in messages" :key="i" :class="msg.role">
+        <strong>{{ msg.role === 'user' ? '你' : 'AI' }}：</strong>
+        <span>{{ msg.content }}</span>
+        <div v-if="msg.sources" class="sources">
+          <small v-for="s in msg.sources" :key="s.filename">
+            📄 {{ s.filename }} ({{ (s.score * 100).toFixed(0) }}%)
+          </small>
+        </div>
+      </div>
+    </div>
+    <div class="input-row">
+      <input v-model="question" @keyup.enter="send" placeholder="输入问题..." />
+      <button @click="send" :disabled="loading">{{ loading ? '思考中...' : '发送' }}</button>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref } from 'vue'
+import { chat } from './api.js'
+
+const question = ref('')
+const messages = ref([])
+const loading = ref(false)
+
+async function send() {
+  if (!question.value.trim()) return
+  const q = question.value
+  messages.value.push({ role: 'user', content: q })
+  question.value = ''
+  loading.value = true
+
+  try {
+    const res = await chat(q, messages.value)
+    messages.value.push({
+      role: 'assistant',
+      content: res.answer,
+      sources: res.sources || [],
+    })
+  } catch (e) {
+    messages.value.push({ role: 'assistant', content: '请求失败：' + e.message })
+  } finally {
+    loading.value = false
+  }
+}
+</script>
+
+<style scoped>
+.chat-container { max-width: 800px; margin: auto; padding: 20px; }
+.messages { height: 500px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 8px; }
+.messages .user { text-align: right; }
+.messages .assistant { text-align: left; }
+.input-row { display: flex; gap: 10px; margin-top: 10px; }
+.input-row input { flex: 1; padding: 10px; font-size: 16px; }
+.sources { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+</style>
+```
+
+### Step 4 — 创建 DocManager.vue
+
+文档管理页面：
+
+```vue
+<template>
+  <div class="doc-manager">
+    <h3>📁 文档管理</h3>
+
+    <div class="upload-area">
+      <input type="file" @change="upload" accept=".txt,.pdf,.docx,.md" />
+      <button @click="$refs.fileInput.click()">选择文件</button>
+    </div>
+
+    <div v-if="uploading">上传中...</div>
+
+    <div class="doc-list">
+      <div v-for="doc in docs" :key="doc" class="doc-item">
+        📄 {{ doc }}
+      </div>
+      <div v-if="docs.length === 0">暂无文档</div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { ref, onMounted } from 'vue'
+import { getDocuments, uploadDocument } from './api.js'
+
+const docs = ref([])
+const uploading = ref(false)
+
+onMounted(async () => {
+  const res = await getDocuments()
+  docs.value = res.documents || []
+})
+
+async function upload(event) {
+  const file = event.target.files[0]
+  if (!file) return
+  uploading.value = true
+  await uploadDocument(file)
+  uploading.value = false
+  // 刷新列表
+  const res = await getDocuments()
+  docs.value = res.documents || []
+}
+</script>
+```
+
+### Step 5 — 组装 App.vue
+
+左右切换两个视图：
+
+```vue
+<template>
+  <div id="app">
+    <h1>📚 RAG 知识库问答</h1>
+    <div class="tabs">
+      <button :class="{ active: tab === 'chat' }" @click="tab = 'chat'">💬 问答</button>
+      <button :class="{ active: tab === 'docs' }" @click="tab = 'docs'">📁 文档管理</button>
+    </div>
+    <ChatView v-if="tab === 'chat'" />
+    <DocManager v-if="tab === 'docs'" />
+  </div>
+</template>
+
+<script setup>
+import { ref } from 'vue'
+import ChatView from './ChatView.vue'
+import DocManager from './DocManager.vue'
+
+const tab = ref('chat')
+</script>
+
+<style>
+body { font-family: sans-serif; margin: 0; padding: 20px; }
+.tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+.tabs button { padding: 10px 20px; border: 1px solid #ccc; background: #f5f5f5; cursor: pointer; }
+.tabs .active { background: #4a90d9; color: white; }
+</style>
+```
+
+### Step 6 — 启动
+
+开两个终端：
+
+```bash
+# 终端 1：后端
+cd d:/rag-project
+uvicorn backend.main:app --reload --port 8000
+
+# 终端 2：前端
+cd d:/rag-project/frontend
+npm run dev
+```
+
+浏览器打开前端地址（默认 `http://localhost:5173`），就可以问答了。
+
+✅ **Phase 6 完成标志：**
+- 前端页面能正常显示
+- 发消息能收到 AI 回答
+- 文档管理能列出文件、上传新文件
+
+---
+
+## 三种模式切换指南
+
+项目做到这就有了三个入口，按需选用：
+
+| 入口 | 启动命令 | 适合场景 |
+|------|----------|----------|
+| `rag_app.py` | `python rag_app.py` | 怀旧 / 对比新旧区别 |
+| `rag_forge/ui/app.py` | `python -m rag_forge.ui.app` | 日常自用，开箱即用 |
+| `backend/main.py` + `frontend/` | `uvicorn` + `npm run dev` | 展示全栈能力 / 给其他人用 |
+
+核心都在 `rag_forge/` 里，不管用哪个入口，检索逻辑和文档数据是同一份，不用维护三套。

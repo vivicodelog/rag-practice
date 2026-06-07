@@ -6,6 +6,7 @@ Rerank 重排序模块（Phase 2 实现）。
 """
 
 import os
+from loguru import logger
 from sentence_transformers import CrossEncoder
 
 # ModelScope 下载配置
@@ -32,9 +33,9 @@ class Reranker:
 
         if not os.path.isdir(model_path):
             # 本地没有 → 从 ModelScope 下载
-            print(f"  从 ModelScope 下载 {model_name} ...")
+            logger.info(f"  从 ModelScope 下载 {model_name} ...")
             self._download_model(model_name, model_path)
-            print(f"  下载完成")
+            logger.info(f"  下载完成")
 
         self.model = CrossEncoder(model_path, trust_remote_code=True)
 

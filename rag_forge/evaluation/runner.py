@@ -51,9 +51,9 @@ def init_rag(use_reranker: bool = True):
     source = FileSource(settings.DATA_DIR)
     sync_state = getattr(settings, "SYNC_STATE_FILE", "./chroma_db/sync_state.json")
 
-    should_rebuild, existing_vdb = need_rebuild(source, sync_state)
+    should_rebuild, existing_vdb, _ = need_rebuild(source, sync_state)
     if should_rebuild or existing_vdb is None:
-        vectordb, all_chunks = build_vectorstore(source, embeddings, settings.CHROMA_DIR)
+        vectordb, all_chunks, _ = build_vectorstore(source, embeddings, settings.CHROMA_DIR)
     else:
         vectordb = existing_vdb
         # Load chunks from chunks.json
