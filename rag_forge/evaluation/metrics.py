@@ -37,7 +37,7 @@ def hit_at_k(results: List[Tuple], reference_docs: List[str], k: int = None) -> 
     if k is not None:
         results = results[:k]
     return any(is_relevant(source, reference_docs) for _, _, source in results)
-
+            #这条结果的来源文件
 
 def reciprocal_rank(results: List[Tuple], reference_docs: List[str]) -> float:
     """

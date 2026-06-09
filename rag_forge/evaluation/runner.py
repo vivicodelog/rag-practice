@@ -93,7 +93,7 @@ def evaluate_single(
         reranker=reranker,
     )
 
-    metrics = compute_all_metrics(results, reference_docs, ks=[1, 3, 5])
+    metrics = compute_all_metrics(results, reference_docs, ks=[1, 3, 5])#---hit@1\3\5
 
     # 记录命中的文档名
     retrieved_sources = []
@@ -177,6 +177,9 @@ def print_report(report: Dict, title: str = "评测报告"):
     print(f"     P@3：    {avg.get('p@3', 0):.1%}")
     print(f"     P@5：    {avg.get('p@5', 0):.1%}")
     print()
+#Hit@1  → 只看第 1 条结果有没有命中
+#Hit@3  → 看前 3 条结果里有没有命中的
+#Hit@5  → 看前 5 条结果里有没有命中的
 
     # 按分类统计
     categories = {}

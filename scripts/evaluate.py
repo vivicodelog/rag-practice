@@ -26,7 +26,7 @@ from rag_forge.evaluation.runner import (
 
 
 def main():
-    parser = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(#在终端解析参数的工具，python自带的
         description="RAG-Forge 评测系统 — Phase 3",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""

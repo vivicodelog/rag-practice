@@ -1,0 +1,42 @@
+FastAPI 快速入门
+
+一、什么是 FastAPI
+FastAPI 是一个现代、高性能的 Python Web 框架，用于构建 RESTful API。它是当前 Python 后端开发的热门选择，尤其适合 AI 服务的接口层。
+
+二、核心特性
+1. 高性能：与 Node.js 和 Go 相当的性能
+2. 自动文档：自动生成 Swagger 交互式文档
+3. 类型校验：基于 Python 类型注解，自动参数校验
+4. 异步支持：原生支持 async/await
+5. 数据验证：集成 Pydantic 进行数据模型校验
+
+三、基本用法
+
+1. 安装
+   pip install fastapi uvicorn
+
+2. 最简服务
+   from fastapi import FastAPI
+   app = FastAPI()
+
+   @app.get("/")
+   def read_root():
+       return {"message": "Hello World"}
+
+3. 启动
+   uvicorn main:app --reload
+
+四、在 RAG 项目中的典型用法
+
+将 RAG 系统包装成 API 服务：
+
+   @app.post("/chat")
+   def chat(question: str, history: list = []):
+       results = hybrid_search(question, ...)
+       answer = llm.generate(question, results)
+       return {"answer": answer, "sources": [...]}
+
+五、为什么对 RAG 项目重要
+1. 让任何客户端（前端、移动端、第三方）都能调用你的 RAG 能力
+2. 与 Gradio UI 分离，后端独立部署
+3. 方便测试、压测、监控

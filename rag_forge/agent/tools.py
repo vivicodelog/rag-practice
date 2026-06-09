@@ -1,11 +1,23 @@
 """
 LangChain 工具函数：get_weather + search_docs
 """
+import contextvars
 import os
+import uuid
 
+from loguru import logger
 from langchain_core.tools import tool
 import requests
 
+# trace_id 上下文变量，贯穿一次问答全流程
+#name: str = "张三"
+#  ↑      ↑    ↑
+# 变量名  类型  值
+trace_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="")
+#      ↑                    ↑                          ↑
+#    变量名                类型                      值（创建的ContextVar对象）
+#变量名（你代码中使用的名字）：类型注解 （给ide看的）字符串类型的上下文变量  = 实际创建 真正创建对象的代码
+#Python 的 contextvars（上下文变量） 模块  创建一个"全局变量"，但只在当前请求/任务的上下文中有效，不会互相干扰
 from rag_forge.retrieval.hybrid import hybrid_search
 from rag_forge.config import settings
 
@@ -49,7 +61,7 @@ def _rewrite_query(query: str) -> str:
         resp = _llm.invoke(prompt)
         expanded = resp.content.strip().strip('"').strip("'").strip("「」")
         if expanded:
-            print(f"  查询改写：'{query}' → '{expanded}'")
+            logger.info(f"[{trace_id_var.get()}] 查询改写: '{query}' → '{expanded}'")
             return expanded
     except Exception:
         pass
@@ -78,7 +90,9 @@ def search_docs(query: str) -> str:
 
     # 短查询自动扩展，提高检索命中率
     expanded = _rewrite_query(query)
+    logger.info(f"[{trace_id_var.get()}] hybrid_search 查询: '{expanded}'")
     results = hybrid_search(expanded, _vectordb, _all_chunks, top_k=6, reranker=_reranker)
+    logger.info(f"[{trace_id_var.get()}] hybrid_search 返回 {len(results)} 条结果")
     if not results:
         return "未找到相关文档"
 
@@ -90,7 +104,7 @@ def search_docs(query: str) -> str:
     formatted = []
     for content, score, source in results:
         fname = os.path.basename(source) if source else "未知来源"
-        print(f"【来源：{fname}】（相似度：{score:.2f}）")
+        logger.info(f"[{trace_id_var.get()}]   → {fname}（相似度：{score:.2f}）")
         formatted.append(f"【来源：{fname}】（相似度：{score:.2f}）\n{content}")
     return (
         _TOOL_PREFIX

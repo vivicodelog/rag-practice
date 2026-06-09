@@ -8,7 +8,7 @@ import json
 import os
 
 from langchain_chroma import Chroma
-from langchain_community.document_loaders import Docx2txtLoader, PyPDFLoader, TextLoader, UnstructuredMarkdownLoader
+from langchain_community.document_loaders import Docx2txtLoader, PyPDFLoader, TextLoader
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from loguru import logger
@@ -49,28 +49,28 @@ class FileSource(BaseSource):
         # 从 rag_app.py 复制 FileSource.get_documents() 代码
         # 注意把硬编码的 DATA_DIR 换成 self.directory
         docs = []#存放的所有文档
-        for fname in os.listdir(self.directory):
-            ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''
-            if ext not in ('txt', 'pdf', 'docx', 'md'):
-                continue
-            path = os.path.join(self.directory, fname)#获取完整路径把文件夹路径和文件名拼接到一起，形成完整的文件路径
-            if not os.path.isfile(path):
-                continue
-            if ext == "txt":
-                loader = TextLoader(path, encoding="utf-8")
-            elif ext == "pdf":
-                loader = PyPDFLoader(path)
-            elif ext == "docx":
-                loader = Docx2txtLoader(path)
-            elif ext in ("md", "markdown"):
-                loader = UnstructuredMarkdownLoader(path)
-            else:
-                continue  # 不支持的格式跳过
-            loaded = loader.load()#加载文档内容，加载文档块
-            for doc in loaded:
-                doc_id = fname + "::" + doc.page_content[:50]
-                docs.append((doc_id, doc.page_content, {"source": path}))
-            print(f"  {fname} 加载成功")
+        for root, _, files in os.walk(self.directory):
+            for fname in files:
+                ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''
+                if ext not in ('txt', 'pdf', 'docx', 'md'):
+                    continue
+                path = os.path.join(root, fname)#获取完整路径
+                if ext == "txt":
+                    loader = TextLoader(path, encoding="utf-8")
+                elif ext == "pdf":
+                    loader = PyPDFLoader(path)
+                elif ext == "docx":
+                    loader = Docx2txtLoader(path)
+                elif ext in ("md", "markdown"):
+                    loader = TextLoader(path, encoding="utf-8")
+                else:
+                    continue  # 不支持的格式跳过
+                rel_path = os.path.relpath(path, self.directory).replace("\\", "/")
+                loaded = loader.load()#加载文档内容，加载文档块
+                for doc in loaded:
+                    doc_id = rel_path + "::" + doc.page_content[:50]
+                    docs.append((doc_id, doc.page_content, {"source": path}))
+                print(f"  {rel_path} 加载成功")
         return docs
 
     def get_sync_key(self):
@@ -81,12 +81,12 @@ class FileSource(BaseSource):
         """
         # 从 rag_app.py 复制 FileSource.get_sync_key() 代码
         combined = ""
-        for fname in sorted(os.listdir(self.directory)):
-            ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''
-            if ext not in ('txt', 'pdf', 'docx', 'md'):
-                continue
-            path = os.path.join(self.directory, fname)
-            if os.path.isfile(path):
+        for root, _, files in os.walk(self.directory):
+            for fname in sorted(files):
+                ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''
+                if ext not in ('txt', 'pdf', 'docx', 'md'):
+                    continue
+                path = os.path.join(root, fname)
                 with open(path, "rb") as f:
                     combined += hashlib.md5(f.read()).hexdigest()
         return hashlib.md5(combined.encode()).hexdigest()#双层的加密
@@ -117,15 +117,17 @@ def get_file_md5s(directory: str) -> dict:
 
     用于增量更新：对比新旧 MD5，就知道哪些文件变了。
     """
+    #在更新文档的时候执行，具体是 build_vectorstore() 这个函数里的增量模式，后续每次构建向量库执行
     file_md5s = {}
-    for fname in os.listdir(directory):
-        ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''
-        if ext not in ('txt', 'pdf', 'docx', 'md'):
-            continue
-        path = os.path.join(directory, fname)
-        if os.path.isfile(path):
+    for root, _, files in os.walk(directory):
+        for fname in files:
+            ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''
+            if ext not in ('txt', 'pdf', 'docx', 'md'):
+                continue
+            path = os.path.join(root, fname)
+            rel_path = os.path.relpath(path, directory).replace("\\", "/")
             with open(path, "rb") as f:
-                file_md5s[fname] = hashlib.md5(f.read()).hexdigest()
+                file_md5s[rel_path] = hashlib.md5(f.read()).hexdigest()
     return file_md5s
 
 
@@ -221,8 +223,8 @@ def build_vectorstore(source: BaseSource, embeddings, persist_dir: str,
         if old_chunks:
             for c in old_chunks:
                 src = c.get("metadata", {}).get("source", "")
-                fname = os.path.basename(src)
-                if fname not in changed_files:
+                rel = os.path.relpath(src, source.directory).replace("\\", "/")
+                if rel not in changed_files:
                     merged_chunks.append(c)
         merged_chunks.extend(new_chunks_dict)
 
@@ -274,10 +276,7 @@ def need_rebuild(source: BaseSource, sync_state_file: str):
 
 def get_splitter(filename: str):
     ext = filename.rsplit(".", 1)[-1].lower()
-    if ext == "md":
-        from langchain_text_splitters import MarkdownHeaderTextSplitter
-        return MarkdownHeaderTextSplitter(headers_to_split_on=[("##", "章节")])
-    elif ext == "pdf":
+    if ext == "pdf":
         return RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-    else:  # txt, docx, 代码等
+    else:  # txt, md, docx 等
         return RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=30)

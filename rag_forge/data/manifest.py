@@ -43,13 +43,14 @@ def sync_manifest(data_dir: str, manifest_file: str):
     """
    # 扫描当前文件系统，收集实际存在的文件
     current_files = {}#current_files = 硬盘上真实存在的文件
-    for fname in sorted(os.listdir(settings.DATA_DIR)):
-        ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''#取出文件的扩展名（比如 .pdf 就取出 pdf），转成小写方便比较
-        if ext not in ('txt', 'pdf', 'docx', 'md', 'markdown'):
-            continue
-        path = os.path.join(settings.DATA_DIR, fname)#拼接出文件的完整路径，比如 data/报告.pdf
-        if os.path.isfile(path):# # 检查是不是文件（不是文件夹）
-            current_files[fname] = {
+    for root, _, files in os.walk(settings.DATA_DIR):
+        for fname in sorted(files):
+            ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else ''#取出文件的扩展名（比如 .pdf 就取出 pdf），转成小写方便比较
+            if ext not in ('txt', 'pdf', 'docx', 'md', 'markdown'):
+                continue
+            path = os.path.join(root, fname)#拼接出完整路径
+            rel_path = os.path.relpath(path, settings.DATA_DIR).replace("\\", "/")
+            current_files[rel_path] = {
                 "size": os.path.getsize(path),# 文档大小
                 "mtime": datetime.fromtimestamp(os.path.getmtime(path)).isoformat()# 最后修改时间
             }

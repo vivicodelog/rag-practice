@@ -38,6 +38,9 @@ def test_keyword_finds_exact_match():
     results = keyword_search("跨域", all_chunks, top_k=5)
     # keyword_search 返回 (score, content, source) 格式
     contents = "".join(c for _, c, _ in results)
+    #                        ↑     ↑  ↑
+    #                     分数 内容 来源 — 只要中间的"内容"，用 _ 忽略其他
+    #搜出来一堆结果，把它们的内容拼到一起，看看"跨域"这个词到底在不在里面
     assert "跨域" in contents, "关键词 '跨域' 应出现在结果中"
 
 
@@ -59,4 +62,4 @@ def test_keyword_scored_higher_for_more_matches():
     results = keyword_search("跨域", all_chunks, top_k=5)
     if len(results) >= 2:
         # keyword_search 返回 (score, content, source)，score 在 [0] 位
-        assert results[0][0] >= results[1][0], "结果应该按分数降序排列"
+        assert results[0][0] >= results[1][0], "结果应该按分数降序排列"#返回数据是元组不是数组类型

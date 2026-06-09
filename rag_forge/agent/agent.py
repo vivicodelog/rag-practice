@@ -3,10 +3,12 @@ LangChain 代理创建 + 对话管理。
 """
 
 import os
+import uuid
 
+from loguru import logger
 from pydantic import SecretStr
 from langchain_deepseek import ChatDeepSeek
-from rag_forge.agent.tools import get_weather, search_docs
+from rag_forge.agent.tools import get_weather, search_docs, trace_id_var
 from rag_forge.config import settings
 
 
@@ -39,6 +41,9 @@ def chat(message: str, history: list, agent,llm, max_rounds: int = 4):
     message: 用户输入的字符串
     history: list[dict]，格式为 [{"role": "user/assistant", "content": "..."}]
     yield: 流式返回回答文本"""
+    trace_id = f"trace_{uuid.uuid4().hex[:8]}"
+    trace_id_var.set(trace_id)
+    logger.info(f"[{trace_id}] 收到用户问题: {message[:50]}{'…' if len(message) > 50 else ''}")
     MAX_ROUNDS = max_rounds
 
     if len(history) > MAX_ROUNDS:
@@ -75,4 +80,5 @@ def chat(message: str, history: list, agent,llm, max_rounds: int = 4):
             continue## AI 在调用工具，不是最终回答
         if hasattr(last_msg, "content") and last_msg.content:
             yield last_msg.content#yield - 生成器，逐步输出内容
+    logger.info(f"[{trace_id}] LLM 回答完成")
 

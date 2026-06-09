@@ -1,0 +1,45 @@
+Vue3 组合式 API
+
+一、什么是组合式 API
+组合式 API（Composition API）是 Vue3 引入的一套新的逻辑组织方式，替代了 Vue2 的选项式 API（Options API）。它通过 setup 函数和 ref、reactive 等响应式 API 来组织组件逻辑。
+
+二、核心 API
+
+1. ref
+   定义响应式数据，适合基本类型
+   const count = ref(0)
+   count.value++
+
+2. reactive
+   定义响应式对象
+   const state = reactive({ name: 'Vue', version: 3 })
+
+3. computed
+   定义计算属性
+   const double = computed(() => count.value * 2)
+
+4. watch
+   监听数据变化
+   watch(count, (newVal, oldVal) => { ... })
+
+5. 生命周期
+   onMounted、onUnmounted 替代 mounted、destroyed
+
+三、与选项式 API 对比
+
+选项式 API 按选项类型组织代码（data、methods、computed）
+组合式 API 按功能逻辑组织代码（一个功能的相关代码在一起）
+
+组合式 API 的优势：
+1. 逻辑复用更方便（自定义 hooks）
+2. TypeScript 支持更好
+3. 大型组件更易维护
+4. 逻辑按功能聚合，而非分散在不同选项中
+
+四、实际应用
+
+在 RAG 项目中，如果用 Vue3 构建前端界面：
+- 用 fetch 调用 FastAPI 后端的 /chat 接口
+- 用 ref 管理聊天记录列表
+- 用 computed 计算搜索结果的统计信息
+- 用 watch 监听文档上传后的状态变化
