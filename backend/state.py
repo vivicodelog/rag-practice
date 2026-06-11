@@ -7,9 +7,14 @@ router.py 里的接口从这取。
 
 from typing import Optional, List, Any
 
+from torch import embedding
+
+from rag_forge.embedding.embed import create_embeddings
+
 
 vectordb: Any = None
 all_chunks: List = []
 reranker: Optional[Any] = None
 llm: Any = None
 prompts: str = ""
+embeddings: Any = create_embeddings()
