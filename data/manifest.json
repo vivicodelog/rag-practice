@@ -5,11 +5,6 @@
     "upload_date": "2026-05-15T09:41:40.608926"
   },
   {
-    "filename": "java.txt",
-    "size": 2442,
-    "upload_date": "2026-06-02T15:22:46.857673"
-  },
-  {
     "filename": "test.txt",
     "size": 254,
     "upload_date": "2026-05-28T10:33:00.564875"
@@ -18,6 +13,11 @@
     "filename": "产品介绍1.txt",
     "size": 1043,
     "upload_date": "2026-06-02T15:44:04.060293"
+  },
+  {
+    "filename": "技术规格.txt",
+    "size": 1267,
+    "upload_date": "2026-06-12T11:00:54.344127"
   },
   {
     "filename": "01-LLM基础/Prompt Engineering指南.txt",

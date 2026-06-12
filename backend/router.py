@@ -21,7 +21,7 @@ from rag_forge.data.manifest import load_manifest, save_manifest, sync_manifest
 import backend.state as state
 from backend.schemas import ChatRequest, ChatResponse, SourceItem, UploadResponse
 from rag_forge.service import rebuild_vectorstore
-
+from langchain_core.messages import SystemMessage, HumanMessage
 
 router = APIRouter()
 
@@ -50,9 +50,19 @@ def chat(request: ChatRequest):
             for c, score, s in results
         ]
 
+        # context_text = "\n---\n".join([c for c, s, src in results])
+        # prompt= state.prompts.replace("{context}", context_text).replace("{question}", request.question)
+        # answer = state.llm.invoke(prompt).content
+
+        system_content = state.prompts  # "你是一个问答助手。根据以下资料回答问题..."
         context_text = "\n---\n".join([c for c, s, src in results])
-        prompt= state.prompts.replace("{context}", context_text).replace("{question}", request.question)
-        answer = state.llm.invoke(prompt).content
+
+        messages = [
+            SystemMessage(content=system_content),
+            HumanMessage(content=f"资料：\n{context_text}\n\n问题：{request.question}"),
+        ]
+        answer = state.llm.invoke(messages).content
+
         return ChatResponse(
             answer=answer,
             sources=sources,
@@ -68,7 +78,22 @@ def list_documents():
     manifest = sync_manifest(settings.DATA_DIR, settings.MANIFEST_FILE)
     filenames = [item["filename"] for item in manifest]
     return {"documents": filenames}
-
+@router.get("/documents/details")
+def list_documents_detail():
+    """返回文档列表表格"""
+    manifest = load_manifest(settings.MANIFEST_FILE)
+    print(manifest)
+    if not manifest:
+        return []
+    rows = []
+    for item in manifest:
+        size_kb = item["size"] / 1024
+        rows.append({
+            "filename": item["filename"],
+            "size": f"{size_kb:.1f} KB",
+            "upload_time": item["upload_date"][:19]
+        })
+    return {"documents": rows}
 
 @router.get("/health")
 def health():
@@ -93,10 +118,12 @@ async def upload_file(file: UploadFile = File(...)):
         #     with open(original_path, "rb") as f:
         #         content = f.read()   # ← 直接写，不需要临时文件
         #     file_path = os.path.join(settings.DATA_DIR, original_name)           
-        # else:
+        # else:#这是在拼一个目标路径，意思是"我要把这个上传的文件存到 DATA_DIR 下面"，并不是"从已有文档里找
+        if file.filename is None:
+            raise HTTPException(400, detail="上传文件名称为空")
         original_name = file.filename
         file_path = os.path.join(settings.DATA_DIR, file.filename)
-        #这是在拼一个目标路径，意思是"我要把这个上传的文件存到 DATA_DIR 下面"，并不是"从已有文档里找
+        
         content = await file.read()
           
         with open(file_path, "wb") as f:
@@ -132,6 +159,27 @@ async def upload_file(file: UploadFile = File(...)):
     except Exception as e:
         traceback.print_exc()
         return f"❌ 上传失败：{type(e).__name__}: {e}"
+
+@router.delete("/delete")
+def delete_document(filename):
+    try:
+        if not filename:
+            return "请选择要删除的文件"
+
+        filepath = os.path.join(settings.DATA_DIR, filename)
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+        state.vectordb, state.all_chunks = rebuild_vectorstore(state.embeddings)
+
+        return f"✓ 文件 '{filename}' 已删除，向量库已重建"
+    except Exception as e:
+        traceback.print_exc()
+        return f"❌ 删除失败：{type(e).__name__}: {e}"
+@router.delete("/delete/choices")
+def get_delete_choices():
+    """返回文件名列表（供下拉框使用）"""
+    return [item["filename"] for item in load_manifest(settings.MANIFEST_FILE)]
 
 
 
