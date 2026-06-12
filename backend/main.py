@@ -7,6 +7,8 @@ FastAPI 应用入口。
 import sys
 import os
 
+from rag_forge.agent.tools import init_tools
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from fastapi import FastAPI
@@ -83,6 +85,7 @@ def startup():
             logger.warning(f"Reranker 加载失败，跳过：{e}")
 
     logger.info("RAG 系统初始化完成")
+    init_tools(state.vectordb, state.all_chunks, state.llm, state.reranker)
 
 
 app.include_router(router)

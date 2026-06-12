@@ -11,7 +11,8 @@ import traceback
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from loguru import logger
 
-from rag_forge.agent.tools import init_tools
+from rag_forge.agent.agent import system_prompt
+from rag_forge.agent.tools import get_weather, search_docs
 from rag_forge.config import settings
 from rag_forge.data.loader import FileSource, build_vectorstore
 from rag_forge.embedding.embed import create_embeddings
@@ -21,52 +22,73 @@ from rag_forge.data.manifest import load_manifest, save_manifest, sync_manifest
 import backend.state as state
 from backend.schemas import ChatRequest, ChatResponse, SourceItem, UploadResponse
 from rag_forge.service import rebuild_vectorstore
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 
 router = APIRouter()
 
 
 @router.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
-    """问答接口：接收问题，返回回答和来源"""
+    """问答接口：Agent 模式，LLM 自主选择工具"""
     if state.vectordb is None:
         raise HTTPException(status_code=503, detail="系统尚未初始化完成")
 
     try:
-        results = hybrid_search(
-            query=request.question,
-            vectordb=state.vectordb,
-            all_chunks=state.all_chunks,
-            top_k=6,
-            reranker=state.reranker,
-        )
+        # 1. 把工具绑给 LLM
+        llm_with_tools = state.llm.bind_tools([get_weather, search_docs])
 
-        sources = [
-            SourceItem(
-                filename=os.path.basename(s) if s else "未知",
-                score=score,
-                content=c[:200],
-            )
-            for c, score, s in results
-        ]
-
-        # context_text = "\n---\n".join([c for c, s, src in results])
-        # prompt= state.prompts.replace("{context}", context_text).replace("{question}", request.question)
-        # answer = state.llm.invoke(prompt).content
-
-        system_content = state.prompts  # "你是一个问答助手。根据以下资料回答问题..."
-        context_text = "\n---\n".join([c for c, s, src in results])
-
+        # 2. 准备消息（用 system.md，LLM 才知道有工具可用）
         messages = [
-            SystemMessage(content=system_content),
-            HumanMessage(content=f"资料：\n{context_text}\n\n问题：{request.question}"),
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=request.question),
         ]
-        answer = state.llm.invoke(messages).content
 
-        return ChatResponse(
-            answer=answer,
-            sources=sources,
-        )
+        sources = []  # 来源列表，search_docs 搜到时在这里攒
+
+        # 3. 工具调用循环（最多 3 轮，防死循环）
+        for _ in range(3):
+            response = llm_with_tools.invoke(messages)
+            messages.append(response)
+
+            if not response.tool_calls:
+                break  # 没调工具 → 最终回答
+
+            # 4. 执行每一个工具调用
+            for tool_call in response.tool_calls:
+                tool_name = tool_call["name"].lower()
+                tool_args = tool_call["args"]
+
+                if tool_name == "search_docs":
+                    result = search_docs.invoke(tool_args)
+                    # 搜到了有效内容 → 顺手攒来源
+                    if result not in ("未找到相关文档", "知识库尚未初始化，请先上传文档"):
+                        raw = hybrid_search(
+                            query=tool_args["query"],
+                            vectordb=state.vectordb,
+                            all_chunks=state.all_chunks,
+                            top_k=6,
+                            reranker=state.reranker,
+                        )
+                        sources = [
+                            SourceItem(
+                                filename=os.path.basename(s) if s else "未知",
+                                score=score,
+                                content=c[:200],
+                            )
+                            for c, score, s in raw
+                        ]
+                elif tool_name == "get_weather":
+                    result = get_weather.invoke(tool_args)
+                else:
+                    result = f"未知工具：{tool_name}"
+
+                messages.append(ToolMessage(content=result, tool_call_id=tool_call["id"]))
+
+        # 5. 最终回答
+        answer = messages[-1].content
+
+        return ChatResponse(answer=answer, sources=sources)
+
     except Exception as e:
         logger.error(f"聊天接口异常：{e}")
         raise HTTPException(status_code=500, detail=str(e))
