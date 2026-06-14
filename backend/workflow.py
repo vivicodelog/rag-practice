@@ -10,17 +10,14 @@ from typing import Any, List
 from loguru import logger
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 
-from rag_forge.agent.tools import search_docs, get_weather
-
-
 class WorkflowNode:
     """一个步骤"""
-    def __init__(self, role: str, tools: list, prompt: str, output_key: str):
-        self.role = role              # "researcher" | "writer"
+    def __init__(self, role: str, tools: list, prompt: str, output_key: str, output_type: str = "text"):
+        self.role = role              # "researcher" | "writer" | "reviewer"
         self.tools = tools            # 绑定的工具函数列表
         self.prompt = prompt          # 系统提示词
         self.output_key = output_key  # 产出存到 results[output_key]
-
+        self.output_type = output_type  # "text"→取LLM文本，"tool"→取工具调用结构化数据
 
 class Workflow:
     """编排多个步骤，按顺序执行，上一步产出传给下一步"""
@@ -44,7 +41,8 @@ class Workflow:
             logger.info(f"[Workflow] 开始执行: {node.role}")
 
             # 1. 往 prompt 里注入上一步的产出
-            prompt_text = node.prompt
+            prompt_text = node.prompt   #键值对一起拿就需要用.item# 只要 key #for key in results: # → research, answer
+                                        # 只要值  #for val in results.values():     # → 研究结果, 最终答案
             for key, val in results.items():#不需要额外写 if 判断，空字典自然就不进循环
                 prompt_text = prompt_text.replace("{{" + key + "}}", val)
 
@@ -59,8 +57,55 @@ class Workflow:
             #    没工具 → 直接调 LLM
             if node.tools:
                 result = self._run_with_tools(prompt_text, question, node.tools)
-                output = result["output"]
                 step_log["actions"] = result["actions"]
+
+                if node.output_type == "tool":
+                    # 取结构化数据（如 Reviewer 的审查结论）
+                    review_data = result["tool_calls_data"][0]["args"]#args 是 LLM 决定传给工具函数的参数。
+                    rewrite_count = 0
+
+                    # 不通过则重写循环（最多 2 次）
+                    while not review_data["passed"] and rewrite_count < 2:
+                        rewrite_count += 1
+                        results["review_feedback"] = review_data.get("feedback", "")
+
+                        # 找到 Writer 节点，重建 prompt 后重写
+                        writer_node = next(
+                            (n for n in self.nodes if n.role == "writer"), None
+                        )# "按角色查找" 
+                        #这是 Python 内置函数 next()，它的作用是从一个迭代器里取出下一个元素。
+                        # 不依赖位置 — 即使以后节点顺序变了（比如插了个别的步骤），按角色找仍然正确
+                        # 找不到不崩 — 第二个参数 None 保证了万一没有 writer 节点，返回 None 而不是抛 StopIteration 异常
+                        if writer_node:
+                            writer_prompt = writer_node.prompt
+                            for k, v in results.items():
+                                writer_prompt = writer_prompt.replace(
+                                    "{{" + k + "}}", v
+                                )
+                            writer_output = self._run_without_tools(
+                                writer_prompt, question
+                            )
+                            results["answer"] = writer_output
+
+                        # 重建 Reviewer prompt 重新审查
+                        reviewer_prompt = node.prompt
+                        for k, v in results.items():
+                            reviewer_prompt = reviewer_prompt.replace(
+                                "{{" + k + "}}", v
+                            )
+                        result = self._run_with_tools(
+                            reviewer_prompt, question, node.tools
+                        )
+                        review_data = result["tool_calls_data"][0]["args"]
+
+                    output = (
+                        f"审查{'通过' if review_data['passed'] else '未通过'}"
+                    )
+                    if review_data.get("issues"):
+                        output += f"\n问题：{'；'.join(review_data['issues'])}"
+                    step_log["rewrite_count"] = str(rewrite_count)
+                else:
+                    output = result["output"]
             else:
                 output = self._run_without_tools(prompt_text, question)
 
@@ -73,7 +118,7 @@ class Workflow:
             logger.info(f"[Workflow] 完成: {node.role}")
 
         return {
-            "answer": results.get("answer", ""),
+            "answer": results.get("answer", ""),#Python 字典自带的方法，get — 没有就返回默认值 ""，不报错
             "steps": steps,
         }
 
@@ -85,7 +130,9 @@ class Workflow:
             HumanMessage(content=question),
         ]
 
-        actions = []  # 记录调了哪些工具
+        actions = []         # 记录调了哪些工具
+        tool_calls_data = [] # 记录每次工具调用的参数
+        tool_map = {tool.name.lower(): tool for tool in tools}
 
         for _ in range(3):   # 最多 3 轮工具调用
             response = llm_with_tools.invoke(messages)
@@ -97,21 +144,24 @@ class Workflow:
             for tool_call in response.tool_calls:
                 tool_name = tool_call["name"].lower()
                 tool_args = tool_call["args"]
+                tool_calls_data.append({"name": tool_name, "args": tool_args})
 
-                if tool_name == "search_docs":
-                    result = search_docs.invoke(tool_args)
-                    actions.append(f"调用了 search_docs(query={tool_args['query']})")
-                elif tool_name == "get_weather":
-                    result = get_weather.invoke(tool_args)
-                    actions.append(f"调用了 get_weather(city={tool_args['city']})")
+                tool_fn = tool_map.get(tool_name)
+                if tool_fn:
+                    result = tool_fn.invoke(tool_args)
+                    actions.append(f"调用了 {tool_name}({tool_args})")
                 else:
                     result = f"未知工具：{tool_name}"
 
                 messages.append(
-                    ToolMessage(content=result, tool_call_id=tool_call["id"])
+                    ToolMessage(content=str(result), tool_call_id=tool_call["id"])
                 )
 
-        return {"output": messages[-1].content, "actions": actions}
+        return {
+            "output": messages[-1].content,
+            "actions": actions,
+            "tool_calls_data": tool_calls_data,
+        }
 
     def _run_without_tools(self, prompt: str, question: str) -> str:
         """没有工具的步骤：直接调 LLM"""

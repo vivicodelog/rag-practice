@@ -13,7 +13,7 @@ from loguru import logger
 
 from backend.workflow import Workflow, WorkflowNode
 from rag_forge.agent.agent import system_prompt
-from rag_forge.agent.tools import get_weather, search_docs
+from rag_forge.agent.tools import get_weather, review_result, search_docs
 from rag_forge.config import settings
 from rag_forge.data.loader import FileSource, build_vectorstore
 from rag_forge.embedding.embed import create_embeddings
@@ -221,24 +221,35 @@ def chat_workflow(request: ChatRequest):
     # 读 prompt 文件...   
     researcher_prompt = state.researcher_prompt
     writer_prompt = state.writer_prompt
+    reviewer_prompt = state.reviewer_prompt
     # 组装节点...
-   # Researcher：有工具
+    # Researcher：有工具，取文本
     researcher_node = WorkflowNode(
         role="researcher",
-        tools=[search_docs],   # ← 在这里决定
+        tools=[search_docs],
         prompt=researcher_prompt,
         output_key="research",
+        output_type="text",
     )
     # Writer：没有工具
     writer_node = WorkflowNode(
         role="writer",
-        tools=[],              # ← 在这里决定
+        tools=[],
         prompt=writer_prompt,
         output_key="answer",
+    )
+    # Reviewer：有工具，取结构化数据
+    reviewer_node = WorkflowNode(
+        role="reviewer",
+        tools=[review_result],
+        prompt=reviewer_prompt,
+        output_key="answer",
+        output_type="tool",
     )
     nodes = [
             researcher_node,
             writer_node,
+            reviewer_node
     ]
 
     # 跑 Workflow...（先创建实例，再调用 run）

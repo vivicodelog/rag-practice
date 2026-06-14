@@ -15,3 +15,4 @@ prompts: str = ""
 embeddings: Any = None          # startup 时赋值
 researcher_prompt: str = ""     # startup 时赋值
 writer_prompt: str = ""         # startup 时赋值
+reviewer_prompt: str = ""         # startup 时赋值

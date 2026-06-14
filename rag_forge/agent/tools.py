@@ -2,8 +2,8 @@
 LangChain 工具函数：get_weather + search_docs
 """
 import contextvars
+import json
 import os
-import uuid
 
 from loguru import logger
 from langchain_core.tools import tool
@@ -110,3 +110,8 @@ def search_docs(query: str) -> str:
         _TOOL_PREFIX
         + "\n\n".join(formatted)
     )
+@tool
+def review_result(passed: bool, score: int, issues: list[str], feedback: str) -> str:
+    """审查答案质量。判断是否符合标准。"""
+    return json.dumps({"passed": passed, "score": score, "issues": issues, "feedback": feedback})
+

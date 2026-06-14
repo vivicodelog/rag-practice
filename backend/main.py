@@ -85,7 +85,10 @@ def startup():
         os.path.join(settings.PROMPTS_DIR_AGENT, "writer.md"),
         encoding="utf-8",
     ).read().strip()
-        
+    state.reviewer_prompt = open(
+        os.path.join(settings.PROMPTS_DIR_AGENT, "reviewer.md"),
+        encoding="utf-8",
+    ).read().strip() 
 
     if settings.RERANK_ENABLED:
         try:

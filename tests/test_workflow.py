@@ -12,7 +12,7 @@ from backend.workflow import Workflow, WorkflowNode
 
 # ─── helper：造一个假的 LLM 返回值 ───
 def fake_response(content: str, tool_calls: list = None):
-    """模仿 langchain AIMessage"""
+    """模仿 langchain AIMessage，支持带 tool_calls"""
     msg = MagicMock()
     msg.content = content
     msg.tool_calls = tool_calls or []
@@ -53,9 +53,9 @@ class TestWorkflowNode:
         assert node.output_key == "research"
 
 
+
 class TestWorkflowRun:
     """Workflow.run() 的核心逻辑"""
-
     def test_two_nodes_pass_output_forward(self):
         """
         核心场景：Researcher → Writer。
@@ -186,3 +186,180 @@ class TestPromptFiles:
         assert "{{research}}" in text, (
             "writer.md 缺少 {{research}}，Researcher 的产出注入不到 Writer 的 prompt 里"
         )
+
+
+class TestWorkflowWithReviewer:
+    """含 Reviewer 的三节点串联测试（需要 mock 工具调用）"""
+
+    def make_review_tool(self):
+        """造一个假的 review_docs 工具"""
+        tool = MagicMock()
+        tool.name = "review_docs"
+        tool.invoke.return_value = "ok"
+        return tool
+
+    def test_reviewer_passes_first_time(self):
+        """
+        三节点：Researcher → Writer → Reviewer，一次审查通过。
+
+        LLM 被调 4 次：
+            0. researcher（无工具）→ 文本
+            1. writer（无工具）    → 文本
+            2. reviewer 第一轮    → 返回 tool_call（触发审查）
+            3. reviewer 第二轮    → 返回文本结论
+        """
+        nodes = [
+            WorkflowNode("researcher", [], "研究", "research"),
+            WorkflowNode("writer", [], "基于 {{research}} 写", "answer"),
+            WorkflowNode(
+                "reviewer",
+                [self.make_review_tool()],
+                "审查：{{answer}}",
+                "review_result",
+                output_type="tool",
+            ),
+        ]
+
+        tool_call_pass = {
+            "name": "review_docs",
+            "args": {"passed": True, "feedback": "", "issues": []},
+            "id": "call_1",
+        }
+
+        llm = MagicMock()
+        llm.bind_tools.return_value = llm
+        llm.invoke.side_effect = [
+            fake_response("研究结果"),                           # 0. researcher
+            fake_response("北京是首都"),                          # 1. writer
+            fake_response("", tool_calls=[tool_call_pass]),     # 2. reviewer 调工具
+            fake_response("审查通过"),                            # 3. reviewer 出结论
+        ]
+
+        result = Workflow(nodes=nodes, llm=llm).run("北京人口")
+
+        assert result["answer"] == "北京是首都"
+        assert len(result["steps"]) == 3
+        assert result["steps"][2]["role"] == "reviewer"
+        assert result["steps"][2]["output"] == "审查通过"
+
+    def test_reviewer_rewrite_once(self):
+        """
+        Review 不通过 → 重写一次 → 再审查通过。
+
+        LLM 被调 7 次：
+            0. researcher
+            1. writer
+            2. reviewer 第一轮 invoke1 → tool_call（passed=false）
+            3. reviewer 第一轮 invoke2 → 文本
+            4. writer 重写
+            5. reviewer 第二轮 invoke1 → tool_call（passed=true）
+            6. reviewer 第二轮 invoke2 → 文本
+        """
+        nodes = [
+            WorkflowNode("researcher", [], "研究", "research"),
+            WorkflowNode("writer", [], "基于 {{research}} 写", "answer"),
+            WorkflowNode(
+                "reviewer",
+                [self.make_review_tool()],
+                "审查：{{answer}}\n反馈：{{review_feedback}}",
+                "review_result",
+                output_type="tool",
+            ),
+        ]
+
+        tool_call_fail = {
+            "name": "review_docs",
+            "args": {"passed": False, "feedback": "缺少数据来源", "issues": ["没有引用"]},
+            "id": "call_1",
+        }
+        tool_call_pass = {
+            "name": "review_docs",
+            "args": {"passed": True, "feedback": "", "issues": []},
+            "id": "call_2",
+        }
+
+        llm = MagicMock()
+        llm.bind_tools.return_value = llm
+        llm.invoke.side_effect = [
+            fake_response("研究结果"),                           # 0
+            fake_response("北京是首都"),                          # 1
+            fake_response("", tool_calls=[tool_call_fail]),     # 2. reviewer 第一轮：不通过
+            fake_response("不通过"),                              # 3
+            fake_response("北京是首都，数据来自2020年人口普查"),    # 4. writer 重写
+            fake_response("", tool_calls=[tool_call_pass]),     # 5. reviewer 第二轮：通过
+            fake_response("审查通过"),                            # 6
+        ]
+
+        result = Workflow(nodes=nodes, llm=llm).run("北京人口")
+
+        assert result["answer"] == "北京是首都，数据来自2020年人口普查"
+        assert len(result["steps"]) == 3
+        assert result["steps"][2]["output"] == "审查通过"
+        assert result["steps"][2]["rewrite_count"] == "1"
+
+    def test_reviewer_fails_twice(self):
+        """审查两次都不通过 → 重写 2 次后放弃
+   
+            Review 不通过 → 重写一次 → 再审查通过。
+
+            LLM 被调 7 次：
+                0. researcher
+                1. writer
+                2. reviewer 第一轮 invoke1 → tool_call（passed=false）
+                3. reviewer 第一轮 invoke2 → 文本
+                4. writer 重写
+                5. reviewer 第二轮 invoke1 → tool_call（passed=false）
+                6. reviewer 第二轮 invoke2 → 文本
+                7. writer 重写二轮
+                8. reviewer 第二轮 invoke1 → tool_call（passed=false）
+                9. reviewer 第二轮 invoke2 → 文本  
+           
+        """
+        nodes = [
+            WorkflowNode("researcher", [], "研究", "research"),
+            WorkflowNode("writer", [], "基于 {{research}} 写", "answer"),
+            WorkflowNode(
+                "reviewer",
+                [self.make_review_tool()],
+                "审查：{{answer}}\n反馈：{{review_feedback}}",
+                "review_result",
+                output_type="tool",
+            ),
+        ]
+        
+        tool_call_fail = {
+            "name": "review_docs",
+            "args": {"passed": False, "feedback": "缺少数据来源", "issues": ["没有引用"]},
+            "id": "call_1",
+        }
+        tool_call_pass = {
+            "name": "review_docs",
+           "args": {"passed": False, "feedback": "缺少数据来源", "issues": ["没有引用"]},
+            "id": "call_2",
+        }
+        tool_call_pass = {
+            "name": "review_docs",
+           "args": {"passed": False, "feedback": "数据来源错误", "issues": ["引用错误"]},
+            "id": "call_3",
+        }
+        llm = MagicMock()
+        llm.bind_tools.return_value = llm
+        llm.invoke.side_effect = [
+            fake_response("研究结果"),                           # 0
+            fake_response("北京是首都"),                          # 1
+            fake_response("", tool_calls=[tool_call_fail]),     # 2. reviewer 第一轮：不通过
+            fake_response("不通过"),                              # 3
+            fake_response("北京是首都，数据来自人口普查"),    # 4. writer 重写
+            fake_response("", tool_calls=[tool_call_pass]),     # 5. reviewer 第二轮：不通过
+            fake_response("不通过"),                         # 6
+            fake_response("北京是首都，数据来自2000年人口普查"),    #7. writer 重写
+            fake_response("", tool_calls=[tool_call_pass]),     # 8. reviewer 第三轮：不通过
+            fake_response("审查不通过"),                            # 9
+        ]
+
+        result = Workflow(nodes=nodes, llm=llm).run("北京人口")
+
+        assert result["answer"] == "北京是首都，数据来自2000年人口普查"
+        assert len(result["steps"]) == 3
+        assert result["steps"][2]["output"] == "审查未通过\n问题：引用错误"
+        assert result["steps"][2]["rewrite_count"] == "2"
