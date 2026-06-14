@@ -7,12 +7,6 @@
     pytest tests/test_loader.py -v
 """
 
-import sys
-import os
-import tempfile
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
 from rag_forge.data.loader import FileSource
 
 
@@ -28,15 +22,12 @@ def test_get_documents_loads_subdirectory_files(tmp_path):
     预期：两个文件都被加载，doc_id 包含相对路径。
     """
     # ---- 准备临时目录结构 ----
-    # tmp_path 是 pytest 提供的临时目录，测试结束后自动清理
     data_dir = tmp_path / "data"
     data_dir.mkdir()
 
-    # 根目录的文件
     root_file = data_dir / "readme.txt"
     root_file.write_text("这是根目录的说明文档", encoding="utf-8")
 
-    # 子目录的文件（我们要测的重点！）
     sub_dir = data_dir / "教程"
     sub_dir.mkdir()
     sub_file = sub_dir / "第一章.txt"
@@ -47,10 +38,8 @@ def test_get_documents_loads_subdirectory_files(tmp_path):
     docs = source.get_documents()
 
     # ---- 验证 ----
-    # 1. 两个文件都应该被加载
     assert len(docs) == 2, f"应该加载 2 个文件，实际加载了 {len(docs)} 个"
 
-    # 2. doc_id 应该包含相对路径，而不是只有文件名
     doc_ids = [doc_id for doc_id, _, _ in docs]
     rel_paths = [did.split("::")[0] for did in doc_ids]
 
@@ -58,7 +47,6 @@ def test_get_documents_loads_subdirectory_files(tmp_path):
     assert "教程/第一章.txt" in rel_paths, \
         f"子目录的 '教程/第一章.txt' 应该被加载。实际路径：{rel_paths}"
 
-    # 3. 确认不是用 basename（如果只用文件名，子目录文件会丢失路径信息）
     assert "第一章.txt" not in rel_paths, \
         "doc_id 应该用相对路径，不能只有文件名（否则子目录文件无法区分）"
 
@@ -122,22 +110,19 @@ def test_get_documents_handles_mixed_subdirectory_structure(tmp_path):
           └── 参考/
               └── 手册.md
 
-    预期：4 个支持的文件全部被加载。
+    预期：3 个支持的文件全部被加载。
     """
     data_dir = tmp_path / "data"
     data_dir.mkdir()
 
-    # 第一层子目录
     basic = data_dir / "基础"
     basic.mkdir()
     (basic / "入门.txt").write_text("入门内容", encoding="utf-8")
 
-    # 第二层子目录
     advanced = basic / "进阶"
     advanced.mkdir()
     (advanced / "高级技巧.txt").write_text("高级内容", encoding="utf-8")
 
-    # 另一个子目录
     ref = data_dir / "参考"
     ref.mkdir()
     (ref / "手册.md").write_text("# 手册", encoding="utf-8")
@@ -174,8 +159,6 @@ def test_get_documents_doc_id_uses_relative_path(tmp_path):
     assert len(docs) == 2, "两个同名文件都应该被加载"
 
     rel_paths = [did.split("::")[0] for did, _, _ in docs]
-    # 两个 readme 的相对路径不同
     assert "A/readme.txt" in rel_paths
     assert "B/readme.txt" in rel_paths
-    # 不应该是纯文件名（否则无法区分）
     assert rel_paths.count("readme.txt") == 0, "不能只用文件名，要用相对路径"

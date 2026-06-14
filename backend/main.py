@@ -44,6 +44,7 @@ def startup():
     sync_manifest(settings.DATA_DIR, settings.MANIFEST_FILE)
 
     embeddings = create_embeddings()
+    state.embeddings = embeddings
     source = FileSource(settings.DATA_DIR)
 
     should_rebuild, existing_vdb, _ = need_rebuild(source, settings.SYNC_STATE_FILE)
@@ -74,6 +75,16 @@ def startup():
     _prompt_path = os.path.join(settings.PROMPTS_DIR, "chat.md")
     with open(_prompt_path, "r", encoding="utf-8") as _f:
         state.prompts = _f.read().strip()
+
+    # 加载 Workflow prompt
+    state.researcher_prompt = open(
+        os.path.join(settings.PROMPTS_DIR_AGENT, "researcher.md"),
+        encoding="utf-8",
+    ).read().strip()
+    state.writer_prompt = open(
+        os.path.join(settings.PROMPTS_DIR_AGENT, "writer.md"),
+        encoding="utf-8",
+    ).read().strip()
         
 
     if settings.RERANK_ENABLED:

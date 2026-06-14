@@ -32,5 +32,8 @@ jieba==0.42.1
 requests==2.34.2                 # HTTP 请求（天气查询）
 python-dotenv==1.2.2             # 环境变量加载
 
+# ---- 测试 ----
+pytest==8.3.4
+
 # ---- 启动方式 ----
 # 开发：python rag_app.py

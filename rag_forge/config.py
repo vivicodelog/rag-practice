@@ -45,7 +45,7 @@ class Settings:
 
     # ---------- 提示词 ----------
     PROMPTS_DIR: str = "rag_forge/prompts"
-
+    PROMPTS_DIR_AGENT: str = "rag_forge/agent/prompts"
     # ---------- 对话 ----------
     MAX_HISTORY_ROUNDS: int = 4
 

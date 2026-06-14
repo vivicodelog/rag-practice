@@ -43,3 +43,17 @@ class DeleteResponse(BaseModel):
     """删除文档响应"""
     success: bool
     message: str
+
+    
+class WorkflowStep(BaseModel):
+    """Workflow 步骤日志"""
+    role: str
+    status: str
+    input: str
+    actions: Optional[List[str]] = None
+    output: Optional[str] = None
+
+class WorkflowResponse(BaseModel):
+    """Workflow 聊天响应"""
+    answer: str
+    steps: List[WorkflowStep]

@@ -9,11 +9,6 @@ Reranker 重排序的单元测试。
     pytest tests/test_reranker.py -v
 """
 
-import sys
-import os
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
 
 def test_reranker_import():
     """基本功能：Reranker 类可以正常导入"""
@@ -32,7 +27,6 @@ def test_reranker_instantiation():
         assert reranker is not None
         assert reranker.model is not None, "模型应该加载成功"
     except Exception as e:
-        # 如果模型还没下载，打印提示但不让测试失败
         import pytest
         pytest.skip(f"模型加载失败（首次使用需要下载）：{e}")
 

@@ -11,6 +11,7 @@ import traceback
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from loguru import logger
 
+from backend.workflow import Workflow, WorkflowNode
 from rag_forge.agent.agent import system_prompt
 from rag_forge.agent.tools import get_weather, search_docs
 from rag_forge.config import settings
@@ -20,9 +21,11 @@ from rag_forge.retrieval.hybrid import hybrid_search
 from rag_forge.data.manifest import load_manifest, save_manifest, sync_manifest
 
 import backend.state as state
-from backend.schemas import ChatRequest, ChatResponse, SourceItem, UploadResponse
+from backend.schemas import ChatRequest, ChatResponse, SourceItem, UploadResponse, WorkflowResponse
 from rag_forge.service import rebuild_vectorstore
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
+
+from rag_forge.config import settings
 
 router = APIRouter()
 
@@ -204,6 +207,44 @@ def get_delete_choices():
     return [item["filename"] for item in load_manifest(settings.MANIFEST_FILE)]
 
 
+@router.post("/chat/workflow", response_model=WorkflowResponse)
+def chat_workflow(request: ChatRequest):
+#     检查 state.vectordb 是否初始化（跟 /chat 一样）
+# 读取 prompts/researcher.md 和 prompts/writer.md
+# 创建两个 WorkflowNode
+# 创建 Workflow，传入 state.llm
+# 调 workflow.run(question)
+# 返回结果
+    if state.vectordb is None:
+        raise HTTPException(status_code=503, detail="系统尚未初始化完成")
+
+    # 读 prompt 文件...   
+    researcher_prompt = state.researcher_prompt
+    writer_prompt = state.writer_prompt
+    # 组装节点...
+   # Researcher：有工具
+    researcher_node = WorkflowNode(
+        role="researcher",
+        tools=[search_docs],   # ← 在这里决定
+        prompt=researcher_prompt,
+        output_key="research",
+    )
+    # Writer：没有工具
+    writer_node = WorkflowNode(
+        role="writer",
+        tools=[],              # ← 在这里决定
+        prompt=writer_prompt,
+        output_key="answer",
+    )
+    nodes = [
+            researcher_node,
+            writer_node,
+    ]
+
+    # 跑 Workflow...（先创建实例，再调用 run）
+    workflow = Workflow(nodes=nodes, llm=state.llm)
+    result = workflow.run(request.question)
+    return WorkflowResponse(answer=result["answer"], steps=result["steps"])
 
 
 
