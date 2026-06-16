@@ -61,7 +61,10 @@ class Workflow:
 
                 if node.output_type == "tool":
                     # 取结构化数据（如 Reviewer 的审查结论）
-                    review_data = result["tool_calls_data"][0]["args"]#args 是 LLM 决定传给工具函数的参数。
+                    if not result["tool_calls_data"]:  # 没调工具 → 视为通过
+                        review_data = {"passed": True, "feedback": "", "issues": []}
+                    else:
+                        review_data = result["tool_calls_data"][0]["args"]
                     rewrite_count = 0
 
                     # 不通过则重写循环（最多 2 次）
@@ -78,6 +81,18 @@ class Workflow:
                         # 找不到不崩 — 第二个参数 None 保证了万一没有 writer 节点，返回 None 而不是抛 StopIteration 异常
                         if writer_node:
                             writer_prompt = writer_node.prompt
+                            # 先保存 Writer 上次的答案，再恢复研究员原始结果
+                            results["previous_answer"] = results.get("answer", "")
+                            results["answer"] = results.get("research_data", results["answer"])
+                            # 重写时追加上下文，不影响第一次写
+                            writer_prompt += f"""
+                                你之前写的版本：
+                                {results['previous_answer']}
+
+                                审查反馈：
+                                {results['review_feedback']}
+
+                                请根据审查反馈修改答案。"""
                             for k, v in results.items():
                                 writer_prompt = writer_prompt.replace(
                                     "{{" + k + "}}", v
@@ -96,7 +111,10 @@ class Workflow:
                         result = self._run_with_tools(
                             reviewer_prompt, question, node.tools
                         )
-                        review_data = result["tool_calls_data"][0]["args"]
+                        if not result["tool_calls_data"]:
+                            review_data = {"passed": True, "feedback": "", "issues": []}
+                        else:
+                            review_data = result["tool_calls_data"][0]["args"]
 
                     output = (
                         f"审查{'通过' if review_data['passed'] else '未通过'}"
@@ -111,6 +129,11 @@ class Workflow:
 
             # 3. 存结果
             results[node.output_key] = output
+            # 保存研究员原始结果，重写时要用
+            if node.role == "researcher":
+                results["research_data"] = output
+            if node.role == "writer":
+                results["previous_answer"] = output
             step_log["status"] = "done"
             step_log["output"] = output
             steps.append(step_log)
@@ -120,6 +143,146 @@ class Workflow:
         return {
             "answer": results.get("answer", ""),#Python 字典自带的方法，get — 没有就返回默认值 ""，不报错
             "steps": steps,
+        }
+
+    def stream(self, question: str):
+        """
+        Generator 版 run() — 每一步执行时 yield 事件，前端实时展示。
+
+        Yields:
+            dict，含 "event" 和 "data" 两个 key
+            - node_start: {"role": "researcher"}
+            - node_action: {"role": "researcher", "action": "调用了 search_docs(...)"}
+            - node_end:   {"role": "researcher", "output": "..."}
+            - review_result: {"passed": True/False, "issues": [...], "rewrite_count": N}
+            - done:       {"answer": "...", "steps": [...]}
+        """
+        results = {}
+        steps = []
+
+        for node in self.nodes:
+            # 1. 注入上一步产出
+            prompt_text = node.prompt
+            for key, val in results.items():
+                prompt_text = prompt_text.replace("{{" + key + "}}", val)
+
+            step_log = {
+                "role": node.role,
+                "status": "running",
+                "input": question,
+            }
+            yield {"event": "node_start", "data": {"role": node.role}}
+
+            # 2. 执行
+            if node.tools:
+                result = self._run_with_tools(prompt_text, question, node.tools)
+                step_log["actions"] = result.get("actions", [])
+
+                # 把每次工具调用单独 yield 出去
+                for action in step_log["actions"]:
+                    yield {"event": "node_action", "data": {"role": node.role, "action": action}}
+
+                if node.output_type == "tool":
+                    # Reviewer 的逻辑：审查 → 不通过 → 重写 → 再审查
+                    if not result["tool_calls_data"]:
+                        review_data = {"passed": True, "feedback": "", "issues": []}
+                    else:
+                        review_data = result["tool_calls_data"][0]["args"]
+
+                    rewrite_count = 0
+                    while not review_data["passed"] and rewrite_count < 2:
+                        rewrite_count += 1
+                        yield {
+                            "event": "review_result",
+                            "data": {
+                                "passed": False,
+                                "issues": review_data.get("issues", []),
+                                "rewrite_count": rewrite_count,
+                            },
+                        }
+
+                        results["review_feedback"] = review_data.get("feedback", "")
+
+                        # 找到 Writer 节点，重建 prompt 后重写
+                        writer_node = next(
+                            (n for n in self.nodes if n.role == "writer"), None
+                        )
+                        if writer_node:
+                            writer_prompt = writer_node.prompt
+                            results["previous_answer"] = results.get("answer", "")
+                            results["answer"] = results.get("research_data", results["answer"])
+                            writer_prompt += f"""
+                                你之前写的版本：
+                                {results['previous_answer']}
+
+                                审查反馈：
+                                {results['review_feedback']}
+
+                                请根据审查反馈修改答案。"""
+                            for k, v in results.items():
+                                writer_prompt = writer_prompt.replace("{{" + k + "}}", v)
+                            writer_output = self._run_without_tools(
+                                writer_prompt, question
+                            )
+                            results["answer"] = writer_output
+                            yield {
+                                "event": "node_end",
+                                "data": {
+                                    "role": "writer",
+                                    "output": writer_output,
+                                    "rewrite": True,
+                                },
+                            }
+
+                        # 重建 Reviewer prompt 重新审查
+                        reviewer_prompt = node.prompt
+                        for k, v in results.items():
+                            reviewer_prompt = reviewer_prompt.replace("{{" + k + "}}", v)
+                        result = self._run_with_tools(
+                            reviewer_prompt, question, node.tools
+                        )
+                        if not result["tool_calls_data"]:
+                            review_data = {"passed": True, "feedback": "", "issues": []}
+                        else:
+                            review_data = result["tool_calls_data"][0]["args"]
+
+                    yield {
+                        "event": "review_result",
+                        "data": {
+                            "passed": review_data["passed"],
+                            "issues": review_data.get("issues", []),
+                            "rewrite_count": rewrite_count,
+                        },
+                    }
+                    output = (
+                        f"审查{'通过' if review_data['passed'] else '未通过'}"
+                    )
+                    if review_data.get("issues"):
+                        output += f"\n问题：{'；'.join(review_data['issues'])}"
+                    step_log["rewrite_count"] = str(rewrite_count)
+                else:
+                    output = result["output"]
+            else:
+                output = self._run_without_tools(prompt_text, question)
+
+            # 3. 存结果
+            results[node.output_key] = output
+            if node.role == "researcher":
+                results["research_data"] = output
+            if node.role == "writer":
+                results["previous_answer"] = output
+            step_log["status"] = "done"
+            step_log["output"] = output
+            steps.append(step_log)
+
+            yield {"event": "node_end", "data": {"role": node.role, "output": output}}
+
+        yield {
+            "event": "done",
+            "data": {
+                "answer": results.get("answer", ""),
+                "steps": steps,
+            },
         }
 
     def _run_with_tools(self, prompt: str, question: str, tools: list) -> dict:

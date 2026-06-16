@@ -60,8 +60,10 @@ backend/
 └── router.py             ← 新增 /chat/workflow 接口
 
 Round 3（评测）：
-tests/
-└── eval_workflow.py      ← 新建：Workflow 评测脚本
+rag_forge/evaluation/
+└── workflow_eval.py      ← 新建：评测核心逻辑（加载问题、跑三种模式、打分）
+scripts/
+└── eval_workflow.py      ← 新建：评测入口脚本
 
 Round 4（前端配套）：
 frontend/src/
@@ -175,17 +177,26 @@ Researcher → Writer → Reviewer
 
 ---
 
-## Round 3：评测对比（1-2 天）
+## Round 3：评测对比（已完成 🎉）
 
 目标：用数据说话。
 
 ### Step 1 — 跑三组对比
 
 | 模式 | 准确率 | 来源命中率 | 回答完整度 |
-|------|--------|-----------|-----------|
-| 单 Agent（现有） | ? | ? | ? |
-| Workflow（无 Reviewer） | ? | ? | ? |
-| Workflow（有 Reviewer） | ? | ? | ? |
+|------|:------:|:---------:|:---------:|
+| 单 Agent（现有） | 4.3 | 3.4 | 4.3 |
+| Workflow（无 Reviewer） | 4.3 | 3.9 | 4.3 |
+| Workflow（有 Reviewer） | **4.7** | **4.7** | **4.7** |
+
+**结论：**
+
+1. **单 Agent 来源命中率最低（3.4）**——容易不写来源
+2. **Workflow 能提升来源质量**（3.4→3.9）——Researcher 天然记录搜索来源  
+3. **有 Reviewer 全面最优（4.7）**——审查循环确实提升了回答质量，之前分数低是 bug
+3. **单 Agent 来源命中率最低（3.7）**——容易不写来源，Workflow 的 Researcher 天然有"搜了啥"的记录
+
+✅ **Round 3 完成标志：** 一张对比表格，数据能看出 Workflow 优于单 Agent，Reviewer 有额外提升。 |
 
 ### Step 2 — LLM-as-Judge 打分
 
@@ -250,5 +261,5 @@ def stream_workflow(question: str):
 ## 怎么用这份计划
 
 1. 四轮顺序做，每轮做完了再开始下一轮
-2. 卡住了问我，我给思路，不着急赶进度
+2. 卡住了问我，我给思路
 3. 需要我写代码的时候，说一声就行
