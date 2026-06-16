@@ -5,11 +5,11 @@
       <div v-for="(msg, i) in messages" :key="i" class="message-row" :class="msg.role">
         <div class="bubble">
           <div class="content">{{ msg.content }}</div>
-          <div v-if="msg.sources && msg.sources.length" class="sources">
+          <!-- <div v-if="msg.sources && msg.sources.length" class="sources">
             <span v-for="s in msg.sources" :key="s.filename" class="source-tag">
               📄 {{ s.filename }} {{ (s.score * 100).toFixed(0) }}%
             </span>
-          </div>
+          </div> -->
         </div>
       </div>
       <!-- 加载中动画 -->

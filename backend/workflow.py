@@ -254,6 +254,15 @@ class Workflow:
                             "rewrite_count": rewrite_count,
                         },
                     }
+                    # 重写完成后，把 Writer 状态设回 done（前端展示用）
+                    if rewrite_count > 0:
+                        yield {
+                            "event": "node_end",
+                            "data": {
+                                "role": "writer",
+                                "output": results.get("answer", ""),
+                            },
+                        }
                     output = (
                         f"审查{'通过' if review_data['passed'] else '未通过'}"
                     )

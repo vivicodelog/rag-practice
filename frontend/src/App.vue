@@ -8,12 +8,14 @@
 
     <!-- 标签切换 -->
     <div class="tabs">
-      <button :class="{ active: tab === 'chat' }" @click="tab = 'chat'">💬 问答</button>
+      <button :class="{ active: tab === 'chat' }" @click="tab = 'chat'">💬 问答(Agent)</button>
+      <button :class="{ active: tab === 'workflow' }" @click="tab = 'workflow'">🔁 工作流</button>
       <button :class="{ active: tab === 'docs' }" @click="tab = 'docs'">📁 文档管理</button>
     </div>
 
     <!-- 页面内容 -->
     <ChatView v-if="tab === 'chat'" />
+    <WorkflowChat v-if="tab === 'workflow'" />
     <DocManager v-if="tab === 'docs'" />
   </div>
 </template>
@@ -21,6 +23,7 @@
 <script setup>
 import { ref } from 'vue'
 import ChatView from '../view/ChatView.vue'
+import WorkflowChat from '../view/WorkflowChat.vue'
 import DocManager from '../view/DocManager.vue'
 
 const tab = ref('chat')

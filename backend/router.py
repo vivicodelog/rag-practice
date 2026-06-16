@@ -243,7 +243,7 @@ def chat_workflow(request: ChatRequest):
         role="reviewer",
         tools=[review_result],
         prompt=reviewer_prompt,
-        output_key="answer",
+        output_key="review",       # 不用 "answer"，不覆盖 Writer 的答案
         output_type="tool",
     )
     nodes = [
