@@ -20,3 +20,4 @@ test_*.txt
 final_*.txt
 rag_forge.log
 *.log
+*.db
