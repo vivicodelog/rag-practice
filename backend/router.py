@@ -21,8 +21,9 @@ from rag_forge.retrieval.hybrid import hybrid_search
 from rag_forge.data.manifest import load_manifest, save_manifest, sync_manifest
 
 import backend.state as state
-from backend.schemas import ChatRequest, ChatResponse, SourceItem, UploadResponse, WorkflowResponse
+from backend.schemas import ChatRequest, ChatResponse, SourceItem, UploadResponse, WorkflowResponse, NL2SQLRequest, NL2SQLResponse
 from rag_forge.service import rebuild_vectorstore
+from nl2sql.agent import nl2sql
 from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 
 from rag_forge.config import settings
@@ -255,14 +256,33 @@ def chat_workflow(request: ChatRequest):
     # 跑 Workflow...（先创建实例，再调用 run）
     workflow = Workflow(nodes=nodes, llm=state.llm)
     result = workflow.run(request.question)
-    return WorkflowResponse(answer=result["answer"], steps=result["steps"])
+    return WorkflowResponse(answer=result["answer"], steps=result["steps"])# ── NL2SQL ──────────────────────────────────────────────
 
+@router.post("/nl2sql", response_model=NL2SQLResponse)
+def nl2sql_chat(request: NL2SQLRequest):
+    """NL2SQL：自然语言 → SQL → 查询结果
 
+    逻辑很简单：
+      1. 取 request.question（用户的问题）
+      2. 调 nl2sql(question) — 它在 nl2sql/agent.py，返回 dict
+      3. 用 dict 构造 NL2SQLResponse 返回
 
+    nl2sql() 返回格式：
+      {"sql": "...", "columns": ["..."], "rows": [["..."], ...]}
 
-
-
-
-
+    小技巧：可以用 **dict 解包展开给 NL2SQLResponse
+    """
+    # result = nl2sql(...)          ← 调它
+    # return NL2SQLResponse(...)    ← 包装返回
+    # return NL2SQLResponse(
+    #     sql=result["sql"],
+    #     columns=result["columns"],
+    #     rows=result["rows"]
+    # )
+    result = nl2sql(request.question)
+    return NL2SQLResponse(**result)
+#**result 写法等于上面三行：
+# Python 自动把 {"sql": "xxx", "columns": [...], ...} 展开成
+# NL2SQLResponse(sql="xxx", columns=[...], rows=[...])
 
 

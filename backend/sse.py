@@ -77,7 +77,7 @@ def stream_workflow(question: str = Query(..., description="用户问题")):
         # Step 4: 遍历 workflow.stream(question)
         #   stream() 每次 yield 一个 {"event": "...", "data": {...}}
         #   拿到的每个 event，用 _sse() 格式化后 yield 出去
-        #   try/except 包一下，出错 yield error 事件
+        #   try/except 包一下，出错 yield error 事件，把错误包装成 SSE 事件正常返回（status 200），前端能读到错误消息
         try:
             for event in workflow.stream(question):
                 yield _sse(event["event"], event["data"])

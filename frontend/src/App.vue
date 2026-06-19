@@ -9,12 +9,14 @@
     <!-- 标签切换 -->
     <div class="tabs">
       <button :class="{ active: tab === 'chat' }" @click="tab = 'chat'">💬 问答(Agent)</button>
+      <button :class="{ active: tab === 'nl2sql' }" @click="tab = 'nl2sql'">💾 数据库</button>
       <button :class="{ active: tab === 'workflow' }" @click="tab = 'workflow'">🔁 工作流</button>
       <button :class="{ active: tab === 'docs' }" @click="tab = 'docs'">📁 文档管理</button>
     </div>
 
     <!-- 页面内容 -->
     <ChatView v-if="tab === 'chat'" />
+    <NL2SQLChat v-if="tab === 'nl2sql'" />
     <WorkflowChat v-if="tab === 'workflow'" />
     <DocManager v-if="tab === 'docs'" />
   </div>
@@ -23,6 +25,7 @@
 <script setup>
 import { ref } from 'vue'
 import ChatView from '../view/ChatView.vue'
+import NL2SQLChat from '../view/NL2SQLChat.vue'
 import WorkflowChat from '../view/WorkflowChat.vue'
 import DocManager from '../view/DocManager.vue'
 

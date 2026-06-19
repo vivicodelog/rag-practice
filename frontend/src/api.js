@@ -1,4 +1,4 @@
-const BASE = "http://localhost:8000"
+const BASE = "http://localhost:8002"
 
 /** 聊天 */
 export async function chat(question, history = []) {
@@ -44,8 +44,23 @@ export async function getDeleteChoices() {
   return res.json()
 }
 
-/** 健康检查 */
-export async function healthCheck() {
-  const res = await fetch(`${BASE}/health`)
+/** NL2SQL：自然语言 → SQL → 查询结果 */
+export async function nl2sql(question) {
+  /*
+     跟 chat() 几乎一样的模式：
+       POST /nl2sql
+       body: { question }
+       返回: { sql, columns, rows }
+
+     照着上面 chat() 的写法填就行：
+       - fetch POST
+       - JSON.stringify({ question })
+       - res.json()
+  */
+  const res = await fetch(`${BASE}/nl2sql`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question }),
+  })
   return res.json()
 }

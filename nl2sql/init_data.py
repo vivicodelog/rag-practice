@@ -30,6 +30,9 @@ def seed_authors(cursor: sqlite3.Cursor):
 
 
 def seed_books(cursor: sqlite3.Cursor):
+    # 显式写了 INSERT INTO books (title, author_id, price, stock, category) 
+    # —— 为什么不能直接写 ？
+    # -显式写列名，数据按你指定的顺序插，不受建表顺序影响。
     """插入书籍数据"""
     # 每本书记录 (title, author_id, price, stock, category)
     # 刘慈欣（author_id = 1）：三体（science_fiction, 68, 50）、三体2黑暗森林（science_fiction, 72, 40）、三体3死神永生（science_fiction, 78, 30）
@@ -121,6 +124,57 @@ def seed_orders(cursor: sqlite3.Cursor):
     cursor.execute("INSERT INTO order_items VALUES (NULL, ?, ?, ?, ?)", (order_id, 7, 1, 52))
     cursor.execute("INSERT INTO order_items VALUES (NULL, ?, ?, ?, ?)", (order_id, 11, 1, 30))
 
+def seed_column_meta(cursor: sqlite3.Cursor):
+    """插入字段中文名映射
+    
+    结构：column_meta(table_name, column_name, display_name)
+    
+    数据按表分组：
+      authors:   author_id→作者编号, name→姓名, country→国籍, birth_year→出生年份
+      books:     book_id→书籍编号, title→书名, author_id→(跳过, 已有), price→价格, stock→库存, category→类别
+      customers: customer_id→客户编号, name→(跳过, 已有), ...下面继续
+      orders:    order_id→订单编号, customer_id→(跳过), order_date→订单日期, total_amount→总价
+      order_items: item_id→明细编号, order_id→(跳过), book_id→(跳过), quantity→数量, price→(跳过)
+    
+    注意：
+      - 有些字段名跨表重复（如 name、author_id），每张表都要单独写一条
+      - 数据库里是 total_amount 和 quantity，别写成 total 和 qty
+      - 用 cursor.executemany() 一次插入多条，比一条一条 execute() 快
+      - 数据准备好后，在 main() 里调用 seed_column_meta(cursor)
+    """
+    # 准备一个列表，每条是 (table_name, column_name, display_name)
+    # 五张表的数据都放进去
+    # 用 cursor.executemany("INSERT OR IGNORE INTO column_meta VALUES (NULL, ?, ?, ?)", 你的列表)
+    # INSERT OR IGNORE 防止重复插入（配合 UNIQUE 约束）
+    column_meta = [
+        ("authors", "author_id", "作者编号"),
+        ("authors", "name", "姓名"),
+        ("authors", "country", "国籍"),
+        ("authors", "birth_year", "出生年份"),
+        ("books", "book_id", "书籍编号"),
+        ("books", "title", "书名"),
+        ("books", "author_id", "作者编号"),
+        ("books", "price", "价格"),
+        ("books", "stock", "库存"),
+        ("books", "category", "类别"),
+        ("customers", "customer_id", "客户编号"),
+        ("customers", "name", "姓名"),
+        ("customers", "email", "邮箱"),
+        ("customers", "city", "城市"),
+        ("customers", "join_date", "加入日期"),
+        ("orders", "order_id", "订单编号"),
+        ("orders", "customer_id", "客户编号"),
+        ("orders", "order_date", "订单日期"),
+        ("orders", "total_amount", "总价"),
+        ("order_items", "item_id", "明细编号"),
+        ("order_items", "order_id", "订单编号"),
+        ("order_items", "book_id", "书籍编号"),
+        ("order_items", "quantity", "数量"),
+        ("order_items", "price", "价格"),
+
+    ]
+    cursor.executemany("INSERT OR IGNORE INTO column_meta VALUES (NULL, ?, ?, ?)", column_meta)
+
 def main():
     conn = get_connection()
     cursor = conn.cursor()
@@ -133,7 +187,7 @@ def main():
     seed_customers(cursor)
     print("正在插入订单...")
     seed_orders(cursor)
-
+    seed_column_meta(cursor)
     conn.commit()
     close(conn)
     print("测试数据插入完成！")

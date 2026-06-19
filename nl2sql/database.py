@@ -78,6 +78,14 @@ def init_db():
         FOREIGN KEY (book_id) REFERENCES books(book_id)
         );"""
     )
+    cursor.execute("""CREATE TABLE IF NOT EXISTS column_meta (     
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        table_name TEXT NOT NULL,
+        column_name  TEXT NOT NULL,
+        display_name TEXT NOT NULL, 
+        UNIQUE(table_name, column_name)
+        );"""
+    )
     conn.commit()    # 提交
     cursor.close()   # 关游标
     conn.close()     # 关连接

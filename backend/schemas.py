@@ -57,3 +57,26 @@ class WorkflowResponse(BaseModel):
     """Workflow 聊天响应"""
     answer: str
     steps: List[WorkflowStep]
+
+
+# ── NL2SQL ──────────────────────────────────────────────
+
+class NL2SQLRequest(BaseModel):
+    """NL2SQL 查询请求
+
+    用户发一个自然语言问题，比如"列出所有作者的姓名和国籍"
+    """
+    question: str # ← 用户的问题
+
+
+class NL2SQLResponse(BaseModel):
+    """NL2SQL 查询响应
+
+    nl2sql() 返回三样东西：
+      - sql: LLM 生成的 SQL 语句（展示给用户看）
+      - columns: 查询结果的列名列表（给表格做表头）
+      - rows: 查询结果的数据行，每行是一个 list（给表格填数据）
+    """
+    sql: str           #← 生成的 SQL
+    columns: List[str] # ← 列名，比如 ["name", "country"]
+    rows: List[List]   # ← 数据，比如 [["张三", "中国"], ["李四", "美国"]]
