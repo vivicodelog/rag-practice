@@ -2,6 +2,7 @@
 .env
 __pycache__/
 *.pyc
+node_modules/
 chroma_db/
 chroma_db_web/
 chroma_langchain/

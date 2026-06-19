@@ -10,10 +10,10 @@ import os
 from rag_forge.agent.agent import create_llm, build_agent,tools 
 from rag_forge.agent.tools import review_result, search_docs
 from rag_forge.config import settings
-from backend.workflow import Workflow, WorkflowNode
+from rag_forge.agent.workflow import Workflow, WorkflowNode
 
 
-def load_questions(path: str = None) -> list[dict]:
+def load_questions(path: str| None) -> list[dict]:
     """加载评测问题集，复用 tests/eval_dataset.json"""
     if path is None:
         path = os.path.join(

@@ -7,7 +7,7 @@ Workflow 编排核心的单元测试。
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from backend.workflow import Workflow, WorkflowNode
+from rag_forge.agent.workflow import Workflow, WorkflowNode
 
 
 # ─── helper：造一个假的 LLM 返回值 ───

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import StreamingResponse
 from loguru import logger
 
-from backend.workflow import Workflow, WorkflowNode
+from rag_forge.agent.workflow import Workflow, WorkflowNode
 from rag_forge.agent.tools import search_docs, review_result
 import backend.state as state
 

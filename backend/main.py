@@ -64,9 +64,7 @@ async def lifespan(app: FastAPI):
         temperature=settings.LLM_TEMPERATURE,
     )
     state.llm = llm
-    _prompt_path = os.path.join(settings.PROMPTS_DIR, "chat.md")
-    with open(_prompt_path, "r", encoding="utf-8") as _f:
-        state.prompts = _f.read().strip()
+   
 
     # 加载 Workflow prompt
     state.researcher_prompt = open(

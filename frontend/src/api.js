@@ -1,4 +1,4 @@
-const BASE = "http://localhost:8002"
+const BASE = "http://localhost:8000"
 
 /** 聊天 */
 export async function chat(question, history = []) {

@@ -11,7 +11,7 @@ import traceback
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from loguru import logger
 
-from backend.workflow import Workflow, WorkflowNode
+from rag_forge.agent.workflow import Workflow, WorkflowNode
 from rag_forge.agent.agent import system_prompt
 from rag_forge.agent.tools import get_weather, review_result, search_docs
 from rag_forge.config import settings
@@ -24,9 +24,8 @@ import backend.state as state
 from backend.schemas import ChatRequest, ChatResponse, SourceItem, UploadResponse, WorkflowResponse, NL2SQLRequest, NL2SQLResponse
 from rag_forge.service import rebuild_vectorstore
 from nl2sql.agent import nl2sql
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, HumanMessage, ToolMessage
 
-from rag_forge.config import settings
 
 router = APIRouter()
 
@@ -42,11 +41,17 @@ def chat(request: ChatRequest):
         llm_with_tools = state.llm.bind_tools([get_weather, search_docs])
 
         # 2. 准备消息（用 system.md，LLM 才知道有工具可用）
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=request.question),
-        ]
+       
+        messages: list[BaseMessage] = [SystemMessage(content=system_prompt)]
 
+        # 历史消息：user → HumanMessage，assistant → AIMessage
+        for msg in request.history or []:
+            if msg["role"] == "user":
+                messages.append(HumanMessage(content=msg["content"]))
+            elif msg["role"] == "assistant":
+                messages.append(AIMessage(content=msg["content"]))
+
+        messages.append(HumanMessage(content=request.question))
         sources = []  # 来源列表，search_docs 搜到时在这里攒
 
         # 3. 工具调用循环（最多 3 轮，防死循环）
@@ -130,7 +135,7 @@ def health():
         "chunks": len(state.all_chunks),
         "reranker": state.reranker is not None,
     }
-@router.post("/upload", response_model=UploadResponse)
+@router.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     """保存文件 → 更新清单 → 重建向量库"""
     #drop = update_delete_dropdown
@@ -202,8 +207,8 @@ def delete_document(filename):
     except Exception as e:
         traceback.print_exc()
         return f"❌ 删除失败：{type(e).__name__}: {e}"
-@router.delete("/delete/choices")
-def get_delete_choices():
+@router.get("/delete/choices")
+def get_delete_choices():#这个函数是「获取文件名列表」，不删任何东西
     """返回文件名列表（供下拉框使用）"""
     return [item["filename"] for item in load_manifest(settings.MANIFEST_FILE)]
 
