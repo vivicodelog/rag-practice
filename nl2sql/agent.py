@@ -6,6 +6,7 @@ NL2SQL Agent：自然语言 → SQL → 执行 → 返回结果
   2. 把 schema 拼进 prompt，让 LLM 生成 SQL
   3. 执行 SQL → 返回 {sql, columns, rows}
 """
+import re
 import sqlite3
 import sys, os
 
@@ -23,7 +24,7 @@ from langchain_deepseek import ChatDeepSeek
 from rag_forge.config import settings
 
 
-def get_schema() -> str:
+def get_schema(conn=None) -> str:
     """读取数据库所有表结构，返回格式化文本
 
     例如：
@@ -39,8 +40,12 @@ def get_schema() -> str:
       # parts.append(col_str) → 把每一列的描述收进列表
       # 所有列遍历完，join(parts) → 用逗号粘起来，再套上表名
       # 最后成品：
-         # authors(author_id INTEGER PK, name TEXT NOT NULL, ...)
-    conn = get_connection()
+         # authors(author_id INTEGER PK, name TEXT NOT NULL, ...)       
+         
+    open_conn = False
+    if conn is None: 
+        conn = get_connection() 
+        open_conn = True
     cursor = conn.cursor()  
     # 1. 查出所有用户表（排除 sqlite_sequence）
     # 2. 对每个表名，PRAGMA table_info(表名) 拿到列信息
@@ -53,15 +58,16 @@ def get_schema() -> str:
     # for table_name in table_name:   
     for row in cursor.fetchall():
         table_name = row["name"]  
+        if not re.match(r'^\w+$', table_name):
+            continue
         cursor.execute("PRAGMA table_info("+table_name+")")
         columns = cursor.fetchall()
-        cursor.execute("PRAGMA foreign_key_list("+table_name+")")
+        cur_fk = conn.cursor()      
+        cur_fk.execute("PRAGMA foreign_key_list("+table_name+")")
         # columns 每条是 (cid, name, type, notnull, dflt_value, pk)
         # 需要拼成 "列名 类型 PK/NOT NULL" 的格式
-
-        fk_map = {}#查出每张表的外键关系，存到一个字典里。
-        for fk in cursor.fetchall():
-          fk_map[fk[3]] = f"-> {fk[2]}({fk[4]})"
+        fk_map = {fk[3]: f"-> {fk[2]}({fk[4]})" for fk in cur_fk.fetchall()}
+        cur_fk.close()
         parts = []
         for col in columns:
             col_name, col_type, notnull, pk = col[1], col[2], col[3], col[5]#col[4]没有默认值，直接省略了，不影响后续
@@ -72,10 +78,11 @@ def get_schema() -> str:
             parts.append(col_str)
         table_parts.append(f"{table_name}({', '.join(parts)})")
     cursor.close()
-    close(conn)
+    if open_conn:
+        close(conn)
     return "\n".join(table_parts)
 
-def get_column_map() -> dict:
+def get_column_map(conn = None) -> dict:
     """从 column_meta 表读取字段中文名映射
 
     查 column_meta 表，拿到所有 (column_name, display_name)
@@ -90,12 +97,16 @@ def get_column_map() -> dict:
     #    注意：同一列名可能有多条（不同表），后面的会覆盖前面的，不影响因为中文名是一样的
     # 4. cursor.close() + close(conn)
     # 5. return dict
-    conn = get_connection()
+    open_conn = False
+    if conn is None: 
+        conn = get_connection() 
+        open_conn = True
     cursor = conn.cursor()
     cursor.execute("SELECT column_name, display_name FROM column_meta")
     column_map = {row[0]: row[1] for row in cursor.fetchall()}
     cursor.close()
-    close(conn)
+    if open_conn:
+        close(conn)
     return column_map
 
 
@@ -103,8 +114,10 @@ def get_column_map() -> dict:
 def nl2sql(question: str) -> dict:
     """自然语言 → SQL → 执行 → 返回结果"""
 
+    conn = get_connection()
+    cursor = conn.cursor()
     # ── ① 拿表结构 ──
-    schema = get_schema()
+    schema = get_schema(conn)
 
     # ── ② 拼 prompt ──
     prompt = f"""你是一个 SQLite 专家。根据下面的数据库结构，把用户问题转成 SQL。
@@ -128,29 +141,42 @@ SQL："""
         temperature=0.1,
     )
     response = llm.invoke(prompt)
+    assert isinstance(response.content, str)       # 防御性写法
     sql = response.content.strip()
-
+    columns = []
+    rows = []
+    error_message = None
     # 清理 LLM 可能加的 ```sql ... ``` 包裹
     if sql.startswith("```"):
         sql = sql.split("\n", 1)[1].rsplit("```", 1)[0].strip()
 
+    # 如果 SQL 没有 LIMIT 子句，追加 LIMIT 100
+    if not re.search(r'\bLIMIT\b', sql, re.IGNORECASE):
+        sql = sql.rstrip() + " LIMIT 100"
+
+    try:
+        if sql.strip().upper().startswith("SELECT"):            
+            cursor.execute(sql)
+            columns = [desc[0] for desc in cursor.description]
+            rows = [list(row) for row in cursor.fetchall()]
+        else:
+            error_message = "只支持 SELECT 查询"
+    except sqlite3.Error as e:
+        rows= []
+        error_message = str(e)
     # ── ④ 执行 SQL ──
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(sql)
-    columns = [desc[0] for desc in cursor.description]
-    rows = [list(row) for row in cursor.fetchall()]
-    cursor.close()
-    close(conn)
+    
 
     # ── ⑤ 字段名转中文 ──
     #    数据库字段是英文，前端展示需要中文表头
     
-    column_map = get_column_map()
+    column_map = get_column_map(conn)
     columns = [column_map.get(col, col) for col in columns]
 
+    cursor.close()
+    close(conn)
 
-    return {"sql": sql, "columns": columns, "rows": rows}
+    return {"sql": sql, "columns": columns, "rows": rows,"error": error_message if error_message else None}
 
 if __name__ == "__main__":
     import sys

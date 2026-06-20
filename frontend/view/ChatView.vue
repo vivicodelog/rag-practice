@@ -5,11 +5,11 @@
       <div v-for="(msg, i) in messages" :key="i" class="message-row" :class="msg.role">
         <div class="bubble">
           <div class="content">{{ msg.content }}</div>
-          <!-- <div v-if="msg.sources && msg.sources.length" class="sources">
+          <div v-if="msg.sources && msg.sources.length" class="sources">
             <span v-for="s in msg.sources" :key="s.filename" class="source-tag">
               📄 {{ s.filename }} {{ (s.score * 100).toFixed(0) }}%
             </span>
-          </div> -->
+          </div>
         </div>
       </div>
       <!-- 加载中动画 -->
@@ -44,25 +44,50 @@ watch([messages, loading], async () => {
   }
 }, { deep: true })
 
-async function send() {
+async function send() {  
   if (!question.value.trim()) return
+
+
   const q = question.value
   messages.value.push({ role: 'user', content: q })
+  messages.value.push({
+    role: 'assistant',
+    content: '',
+    sources: [],
+  })
   question.value = ''
   loading.value = true
 
-  try {
-    const res = await chat(q, messages.value)
-    messages.value.push({
-      role: 'assistant',
-      content: res.answer,
-      sources: res.sources || [],
-    })
-  } catch (e) {
-    messages.value.push({ role: 'assistant', content: '请求失败：' + e.message })
-  } finally {
+  
+  const url = `http://localhost:8000/chat/agent/stream?question=${encodeURIComponent(q)}`
+  const es = new EventSource(url)
+  let doneReceived = false  // 防止 error 在 done 之前触发
+  
+   
+  es.addEventListener('token', (e) => {
+    const data = JSON.parse(e.data)
+    const lastMsg = messages.value[messages.value.length - 1]
+    lastMsg.content += data.text
+  })
+  
+  es.addEventListener('done', (e) => {
+    const data = JSON.parse(e.data)
+    const lastMsg = messages.value[messages.value.length - 1]
+    lastMsg.content = data.answer
+    lastMsg.sources = data.sources
+    doneReceived = true    
+    es.close()             
+    loading.value = false  
+  })
+  es.addEventListener('error', () => {
+    if (doneReceived) return             // done 已处理，忽略无故报错
+    const lastMsg = messages.value[messages.value.length - 1]
+    if (lastMsg) lastMsg.error = '连接中断，请重试'
     loading.value = false
-  }
+    es.close()
+  })
+  
+  
 }
 </script>
 

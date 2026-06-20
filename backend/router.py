@@ -94,7 +94,7 @@ def chat(request: ChatRequest):
                 messages.append(ToolMessage(content=result, tool_call_id=tool_call["id"]))
 
         # 5. 最终回答
-        answer = messages[-1].content
+        answer = messages[-1].content if isinstance(messages[-1].content, str) else ""
 
         return ChatResponse(answer=answer, sources=sources)
 

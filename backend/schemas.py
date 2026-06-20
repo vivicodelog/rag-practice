@@ -80,3 +80,4 @@ class NL2SQLResponse(BaseModel):
     sql: str           #← 生成的 SQL
     columns: List[str] # ← 列名，比如 ["name", "country"]
     rows: List[List]   # ← 数据，比如 [["张三", "中国"], ["李四", "美国"]]
+    error: Optional[str] = None

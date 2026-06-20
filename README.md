@@ -11,10 +11,11 @@
 ### 问答
 - ✅ **Agent 模式** — LLM 自主选择工具（搜文档/查天气），不固定流程
 - ✅ **Workflow 模式** — Researcher 搜索 → Writer 写作 → Reviewer 审查，不通过则自动重写（最多 2 次）
-- ✅ **SSE 流式推送** — 实时展示每一步的执行状态，前端可见思考过程
+- ✅ **SSE 流式推送（Agent + Workflow）** — token 级实时推送，前端打字机效果；工具调用过程可见
 - ✅ **混合检索** — 向量语义搜索 + jieba 关键词匹配，结果更精准
 - ✅ **工具调用** — `search_docs`（文档搜索）+ `get_weather`（天气查询），可扩展
 - ✅ **来源标注** — 回答附带文档来源和匹配度分数
+- ✅ **NL2SQL** — 自然语言转 SQL，查询后返回结果表格
 
 ### 文档管理
 - ✅ **上传文档** — 支持 TXT / PDF / DOCX / MD，自动构建知识库
@@ -103,7 +104,7 @@ rag-project/
 ├── backend/                # FastAPI 后端
 │   ├── main.py             # 应用入口（lifespan 初始化）
 │   ├── router.py           # API 路由（chat / workflow / upload / delete / health）
-│   ├── sse.py              # SSE 流式推送（Workflow 实时事件）
+│   ├── sse.py              # SSE 流式推送（Agent + Workflow 实时事件）
 │   ├── schemas.py          # 请求/响应数据模型
 │   ├── state.py            # 运行时全局状态
 │   └── workflow.py         # Workflow 编排核心 + 流式接口
@@ -114,7 +115,7 @@ rag-project/
 │   │   ├── api.js          # 后端接口封装
 │   │   └── main.js         # 入口
 │   ├── view/
-│   │   ├── ChatView.vue    # Agent 模式气泡对话
+│   │   ├── ChatView.vue    # Agent 模式气泡对话（SSE 流式）
 │   │   ├── WorkflowChat.vue # Workflow 模式（步骤展示 + SSE 实时更新）
 │   │   └── DocManager.vue  # 文档管理
 │   └── package.json

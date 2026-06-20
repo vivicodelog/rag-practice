@@ -7,7 +7,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from rag_forge.config import settings
 
 def create_embeddings(
-    model_path: str | None= None,
+    model_path: str | None = None,
     ) -> HuggingFaceEmbeddings:
     """创建 HuggingFace 嵌入模型"""
     return HuggingFaceEmbeddings(    
