@@ -11,7 +11,7 @@ from rag_forge.agent.workflow import Workflow, WorkflowNode
 
 
 # ─── helper：造一个假的 LLM 返回值 ───
-def fake_response(content: str, tool_calls: list = None):
+def fake_response(content: str, tool_calls: list | None= None):
     """模仿 langchain AIMessage，支持带 tool_calls"""
     msg = MagicMock()
     msg.content = content

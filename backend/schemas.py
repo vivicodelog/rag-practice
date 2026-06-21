@@ -77,7 +77,8 @@ class NL2SQLResponse(BaseModel):
       - columns: 查询结果的列名列表（给表格做表头）
       - rows: 查询结果的数据行，每行是一个 list（给表格填数据）
     """
-    sql: str           #← 生成的 SQL
-    columns: List[str] # ← 列名，比如 ["name", "country"]
-    rows: List[List]   # ← 数据，比如 [["张三", "中国"], ["李四", "美国"]]
-    error: Optional[str] = None
+    sql: str                    # ← 生成的 SQL
+    columns: List[str]          # ← 列名，比如 ["name", "country"]
+    rows: List[List]            # ← 数据，比如 [["张三", "中国"], ["李四", "美国"]]
+    error: Optional[str] = None # ← 错误信息（没有错误就是 None）
+    explanation: Optional[str] = None  # ← SQL 大白话解释（比如"查询所有作者的名字和国籍"）

@@ -133,41 +133,110 @@ def nl2sql(question: str) -> dict:
 用户问题：{question}
 
 SQL："""
-
-    # ── ③ 调 LLM 生成 SQL ──
+  
+    # ── ③ 调 LLM 生成 SQL，带自愈循环 ──
     llm = ChatDeepSeek(
         api_key=SecretStr(settings.DEEPSEEK_API_KEY),
         model=settings.LLM_MODEL,
         temperature=0.1,
     )
-    response = llm.invoke(prompt)
-    assert isinstance(response.content, str)       # 防御性写法
-    sql = response.content.strip()
+
     columns = []
     rows = []
     error_message = None
-    # 清理 LLM 可能加的 ```sql ... ``` 包裹
-    if sql.startswith("```"):
-        sql = sql.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    sql = ""
 
-    # 如果 SQL 没有 LIMIT 子句，追加 LIMIT 100
-    if not re.search(r'\bLIMIT\b', sql, re.IGNORECASE):
-        sql = sql.rstrip() + " LIMIT 100"
+    for attempt in range(3):
+        if attempt == 0:
+            current_prompt = prompt
+        elif attempt == 1:
+            # 修正 prompt：告诉 LLM 上次写错了，重新生成
+            current_prompt = f"""你是一个 SQLite 专家。根据下面的数据库结构，把错误的SQL重新生成正确的 SQL。
 
-    try:
-        if sql.strip().upper().startswith("SELECT"):            
-            cursor.execute(sql)
-            columns = [desc[0] for desc in cursor.description]
-            rows = [list(row) for row in cursor.fetchall()]
+数据库结构：
+{schema}
+
+你上次写的SQL有错误：
+    SQL：{sql}
+    错误信息：{error_message}
+请重新生成正确的SQL，要求不变（只输出SQL、只SELECT 、不要引号）。
+要求：
+- 只输出 SQL，不要解释、不要多余文字
+- 只使用 SELECT 查询
+- 列名和表名不要加引号或反引号
+- 如果有 AS 别名，用中文且不要加引号（如 COUNT(*) AS 数量）
+用户问题：{question}
+
+SQL："""
         else:
-            error_message = "只支持 SELECT 查询"
-    except sqlite3.Error as e:
-        rows= []
-        error_message = str(e)
-    # ── ④ 执行 SQL ──
+            # ⚠️ 作业：写最后一次的 prompt
+            # attempt == 2，这是最后一次了
+            # 告诉 LLM "这是最后一次尝试，如果还不对就输出中文解释"
+            # 中文解释直接用来当 error_message 返回给用户
+            #
+            # 大概结构：开头说"最后一次"，中间跟修正 prompt 一样，
+            # 最后加上"如果还是无法生成正确的 SELECT 查询，直接输出中文解释错误原因"
+            current_prompt = f"""最后一次，你是一个 SQLite 专家。根据下面的数据库结构，把错误的SQL重新生成正确的 SQL。
+
+数据库结构：
+{schema}
+
+你上次写的SQL有错误：
+    SQL：{sql}
+    错误信息：{error_message}
+请重新生成正确的SQL，要求不变（只输出SQL、只SELECT 、不要引号）。
+要求：
+- 只输出 SQL，不要解释、不要多余文字
+- 只使用 SELECT 查询
+- 列名和表名不要加引号或反引号
+- 如果有 AS 别名，用中文且不要加引号（如 COUNT(*) AS 数量）
+- 如果还是无法生成正确的 SELECT 查询，直接输出中文解释错误原因
+用户问题：{question}
+
+SQL："""
+
+        response = llm.invoke(current_prompt)
+        assert isinstance(response.content, str)
+        sql = response.content.strip()
+        error_message = ''
+        if sql.startswith("```"):
+            sql = sql.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        if not re.search(r'\bLIMIT\b', sql, re.IGNORECASE):
+            sql = sql.rstrip() + " LIMIT 100"
+
+        try:
+            if sql.strip().upper().startswith("SELECT"):
+                cursor.execute(sql)
+                columns = [desc[0] for desc in cursor.description]
+                rows = [list(row) for row in cursor.fetchall()]
+                break
+            else:
+                error_message = sql.removesuffix(" LIMIT 100")
+        except sqlite3.Error as e:
+            error_message = str(e)
     
 
-    # ── ⑤ 字段名转中文 ──
+    # ── ⑤ SQL 可解释性 ──
+    #    SQL 普通人看不懂，让 LLM 翻译成大白话
+    #    比如 "SELECT name FROM authors WHERE country='中国'"
+    #      → "查询所有中国作者的名字"
+    #    只在执行成功时做（error_message 为空）
+    explanation = None
+    if not error_message:
+        # ⚠️ 作业：写解释 prompt
+        # 把 sql 传给 LLM，让它用一句话说清楚这条 SQL 干什么
+        # 要求：不要列名，不要技术术语，只说"查什么、从哪查、什么条件"
+        # 提示：重新 invok 一次 llm，用简短的 prompt
+        #       参考上面 llm.invoke(...) 的写法
+        #
+        # 注意：llm 实例已经存在（上面第 138 行），直接拿来用
+        #       这里只需要拼 prompt → invoke → 拿结果
+        explain_prompt = f"把 SQL {sql} 用中文翻译成大白话，不要列名、不要技术术语，只说\"查什么、从哪查、什么条件\""
+        explain_response = llm.invoke(explain_prompt)
+        assert isinstance(explain_response.content, str)
+        explanation = explain_response.content.strip()
+
+    # ── ⑥ 字段名转中文 ──
     #    数据库字段是英文，前端展示需要中文表头
     
     column_map = get_column_map(conn)
@@ -176,7 +245,7 @@ SQL："""
     cursor.close()
     close(conn)
 
-    return {"sql": sql, "columns": columns, "rows": rows,"error": error_message if error_message else None}
+    return {"sql": sql, "columns": columns, "rows": rows, "error": error_message if error_message else None, "explanation": explanation}
 
 if __name__ == "__main__":
     import sys
