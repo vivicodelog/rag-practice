@@ -32,7 +32,6 @@ AI 知识库问答助手，RAG + Agent + Workflow 全栈项目。
 | `rag_forge/agent/tools.py` | Agent 工具定义 |
 | `rag_forge/agent/prompts/` | 各角色 system prompt |
 | `backend/router.py` | API 路由 |
-| `backend/workflow.py` | Workflow 路由 |
 | `backend/state.py` | 应用状态 |
 | `backend/schemas.py` | Pydantic 模型 |
 | `AI_ASSISTANT_PLAN.md` | Workflow 构建计划 |

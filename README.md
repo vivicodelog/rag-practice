@@ -16,6 +16,7 @@
 - ✅ **工具调用** — `search_docs`（文档搜索）+ `get_weather`（天气查询），可扩展
 - ✅ **来源标注** — 回答附带文档来源和匹配度分数
 - ✅ **NL2SQL** — 自然语言转 SQL，查询后返回结果表格
+- ✅ **多轮对话** — Agent 模式支持上下文记忆，历史消息自动拼入 prompt
 
 ### 文档管理
 - ✅ **上传文档** — 支持 TXT / PDF / DOCX / MD，自动构建知识库
@@ -106,8 +107,7 @@ rag-project/
 │   ├── router.py           # API 路由（chat / workflow / upload / delete / health）
 │   ├── sse.py              # SSE 流式推送（Agent + Workflow 实时事件）
 │   ├── schemas.py          # 请求/响应数据模型
-│   ├── state.py            # 运行时全局状态
-│   └── workflow.py         # Workflow 编排核心 + 流式接口
+│   └── state.py            # 运行时全局状态
 │
 ├── frontend/               # Vue 3 前端
 │   ├── src/
@@ -252,4 +252,4 @@ SSE 流式推送 → Vue 前端实时展示步骤状态 + 最终答案
 - [ ] 支持更多工具（网络搜索、代码执行等）
 - [ ] 支持数据库作为文档源（预留了 DatabaseSource 类）
 - [ ] 单元测试完善
-- [ ] 多轮对话支持
+- [x] 多轮对话支持
