@@ -19,9 +19,8 @@ sys.path.insert(0, _project_root)
 sys.path.insert(0, _nl2sql_dir)
 
 from database import get_connection, close
-from pydantic import SecretStr
-from langchain_deepseek import ChatDeepSeek
 from rag_forge.config import settings
+from rag_forge.agent.agent import create_llm
 
 
 def get_schema(conn=None) -> str:
@@ -111,13 +110,21 @@ def get_column_map(conn = None) -> dict:
 
 
 
-def nl2sql(question: str) -> dict:
+def nl2sql(question: str, history: list|None = None) -> dict:
+
     """自然语言 → SQL → 执行 → 返回结果"""
 
     conn = get_connection()
     cursor = conn.cursor()
     # ── ① 拿表结构 ──
     schema = get_schema(conn)
+    history_text = ""
+    if history:
+        lines = []
+        for m in history:
+            role = "用户" if m["role"] == "user" else "助手"
+            lines.append(f"{role}：{m['content']}")
+        history_text = "\n".join(lines)
 
     # ── ② 拼 prompt ──
     prompt = f"""你是一个 SQLite 专家。根据下面的数据库结构，把用户问题转成 SQL。
@@ -130,16 +137,14 @@ def nl2sql(question: str) -> dict:
 - 只使用 SELECT 查询
 - 列名和表名不要加引号或反引号
 - 如果有 AS 别名，用中文且不要加引号（如 COUNT(*) AS 数量）
+历史查询：
+    {history_text}
 用户问题：{question}
 
 SQL："""
   
     # ── ③ 调 LLM 生成 SQL，带自愈循环 ──
-    llm = ChatDeepSeek(
-        api_key=SecretStr(settings.DEEPSEEK_API_KEY),
-        model=settings.LLM_MODEL,
-        temperature=0.1,
-    )
+    llm = create_llm(settings.DEEPSEEK_API_KEY)
 
     columns = []
     rows = []

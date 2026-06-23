@@ -22,9 +22,10 @@ class WorkflowNode:
 class Workflow:
     """编排多个步骤，按顺序执行，上一步产出传给下一步"""
 
-    def __init__(self, nodes: List[WorkflowNode], llm: Any):
+    def __init__(self, nodes: List[WorkflowNode], llm: Any,history: list[dict] = []):
         self.nodes = nodes
         self.llm = llm
+        self.history = history
     def _execute_step(self, node, prompt_text, question, results):
         """执行一个步骤，返回 (output, step_log, events)
         
@@ -170,6 +171,13 @@ class Workflow:
         """
         results = {}   # output_key → 文本产出
         steps = []     # 步骤日志
+        # workflow.py stream() / run() 里
+        if self.history:
+            history_text = "\n".join(
+                f"{'用户' if m['role']=='user' else '助手'}: {m['content']}"
+                for m in self.history
+            )
+            question = f"历史对话：\n{history_text}\n\n当前问题：{question}"
 
         for node in self.nodes:
             logger.info(f"[Workflow] 开始执行: {node.role}")
@@ -203,6 +211,12 @@ class Workflow:
         """
         results = {}
         steps = []
+        if self.history:
+            history_text = "\n".join(
+                f"{'用户' if m['role']=='user' else '助手'}: {m['content']}"
+                for m in self.history
+            )
+            question = f"历史对话：\n{history_text}\n\n当前问题：{question}"
         for node in self.nodes:
             # 1. 注入上一步产出
             prompt_text = node.prompt   #键值对一起拿就需要用.item# 只要 key #for key in results: # → research, answer

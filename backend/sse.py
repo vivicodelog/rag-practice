@@ -15,13 +15,14 @@ from rag_forge.agent.workflow import Workflow, WorkflowNode
 from rag_forge.agent.tools import search_docs, review_result, get_weather
 from rag_forge.config import settings
 from rag_forge.retrieval.hybrid import hybrid_search
+from rag_forge.history import trim_history
 import backend.state as state
 
 router = APIRouter()
 
 
 @router.get("/chat/workflow/stream")
-def stream_workflow(question: str = Query(..., description="用户问题")):
+def stream_workflow(question: str = Query(..., description="用户问题"),history: str = Query("[]"),):
     """
     SSE 流式接口。
 
@@ -70,6 +71,14 @@ def stream_workflow(question: str = Query(..., description="用户问题")):
             output_type="tool"
         )
         # Step 3: 创建 Workflow 实例，传 nodes 和 state.llm
+        system_prompt = open(
+            os.path.join(settings.PROMPTS_DIR, "system.md"),
+            encoding="utf-8"
+        ).read().strip()
+        history_list = json.loads(history)  
+        trimmed = trim_history(history_list, state.llm, settings.MAX_HISTORY_ROUNDS)
+        
+        
         workflow = Workflow(
             nodes=[
                 researcher_node,
@@ -77,6 +86,7 @@ def stream_workflow(question: str = Query(..., description="用户问题")):
                 reviewer_node,
             ],
             llm=state.llm,
+            history=trimmed
         )
         # Step 4: 遍历 workflow.stream(question)
         #   stream() 每次 yield 一个 {"event": "...", "data": {...}}
@@ -91,8 +101,8 @@ def stream_workflow(question: str = Query(..., description="用户问题")):
 
 
 @router.get("/chat/agent/stream")
-def stream_agent(question: str = Query(..., description="用户问题")):
-    """
+def stream_agent(question: str = Query(..., description="用户问题"),history: str = Query("[]"),):
+    """                                                         history 参数收到的是 [{"role":"user","content":"hi"}] —— 一个JSON 格式的字符串
     SSE 流式问答。
 
     跟 /chat 一样是 Agent 模式（LLM 自主选工具），
@@ -111,8 +121,17 @@ def stream_agent(question: str = Query(..., description="用户问题")):
         ).read().strip()
 
         llm_with_tools = state.llm.bind_tools([get_weather, search_docs])
-        messages: list = [SystemMessage(content=system_prompt), HumanMessage(content=question)]
-
+        history_list = json.loads(history)  
+        trimmed = trim_history(history_list, state.llm, settings.MAX_HISTORY_ROUNDS)
+        messages: list = [SystemMessage(content=system_prompt)]
+        for msg in trimmed:
+            if msg["role"] == "user":
+                messages.append(HumanMessage(content=msg["content"]))
+            elif msg["role"] == "assistant":
+                messages.append(AIMessage(content=msg["content"]))
+            elif msg["role"] == "system":
+                messages.append(SystemMessage(content=msg["content"]))
+        messages.append(HumanMessage(content=question))
         # 攒来源：search_docs 被调用时，顺手做 hybrid_search 拿详细来源
         sources = []
         final_answer = ""

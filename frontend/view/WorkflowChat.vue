@@ -116,7 +116,13 @@ function send() {
   loading.value = true
 
   // 2. 连 SSE，每个事件对应一个前端更新
-  const url = `http://localhost:8000/chat/workflow/stream?question=${encodeURIComponent(q)}`
+  const history = JSON.stringify(
+    messages.value.slice(0, -2).map(m => ({
+      role: m.role,
+      content: m.content || ''
+    }))
+  )
+  const url = `http://localhost:8000/chat/workflow/stream?question=${encodeURIComponent(q)}&history=${encodeURIComponent(history)}`
   const es = new EventSource(url)
   let doneReceived = false  // 防止 error 在 done 之前触发
 

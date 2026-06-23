@@ -95,9 +95,13 @@ async function send() {
   messages.value.push({ role: 'user', content: q })
   question.value = ''
   loading.value = true
+  const history = messages.value.map(m => ({
+      role: m.role,
+      content: m.content || ''
+  }))
 
   try {
-    const res = await nl2sql(q)
+    const res = await nl2sql(q,history)
     messages.value.push({
       role: 'assistant',
       sql: res.sql,

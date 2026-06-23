@@ -42,6 +42,8 @@ class Settings:
     LLM_MODEL: str = "deepseek-chat"
     LLM_TEMPERATURE: float = 0.1
     DEEPSEEK_API_KEY: str = ""
+    LLM_TIMEOUT: int = 60           # API 请求超时（秒）
+    LLM_MAX_RETRIES: int = 2        # 网络错误时自动重试次数
 
     # ---------- 提示词 ----------
     PROMPTS_DIR: str = "rag_forge/prompts"

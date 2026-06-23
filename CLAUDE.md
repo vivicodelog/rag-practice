@@ -16,25 +16,27 @@ AI 知识库问答助手，RAG + Agent + Workflow 全栈项目。
 - 回答简短有重点，不吹牛
 - 前端默认已掌握，不需要解释基础概念
 
-## 当前学习重点（2026-06-17）
+## 当前学习重点（2026-06-23）
 - ✅ 已跑通：FastAPI + Vue 分离、单 Agent（bind_tools）、Service 层
-- ✅ 已跑通：：Workflow 编排（Researcher → Writer → Reviewer）
-  - 把每一步的细节理清楚再往下走，不赶进度
-  - 参考 `AI_ASSISTANT_PLAN.md`
-- 📝 后面再看：评测对比、前端思考链展示
+- ✅ 已跑通：Workflow 编排（Researcher → Writer → Reviewer）
+- ✅ 已跑通：NL2SQL 三阶段（SQLite → Agent → column_meta → 前端展示 + 自愈循环 + 可解释性）
+- ✅ 已跑通：多轮对话历史公共模块（history.py + create_llm()），覆盖 RAG/Workflow/NL2SQL
+- 🚧 待做：测试覆盖率、NL2SQL 注册为 Agent 工具、Docker 部署
 
 ## 关键文件索引
 | 文件 | 说明 |
 |------|------|
 | `rag_forge/service.py` | 核心业务（搜索、重建等） |
-| `rag_forge/agent/agent.py` | Agent 封装 |
+| `rag_forge/history.py` | 多轮对话历史压缩（trim_history） |
+| `rag_forge/agent/agent.py` | Agent 封装 + create_llm 工厂 |
 | `rag_forge/agent/workflow.py` | Workflow 编排 |
 | `rag_forge/agent/tools.py` | Agent 工具定义 |
 | `rag_forge/agent/prompts/` | 各角色 system prompt |
 | `backend/router.py` | API 路由 |
 | `backend/state.py` | 应用状态 |
 | `backend/schemas.py` | Pydantic 模型 |
-| `AI_ASSISTANT_PLAN.md` | Workflow 构建计划 |
+| `backend/sse.py` | SSE 流式推送 |
+| `nl2sql/agent.py` | NL2SQL Agent |
 | `tests/` | 单元测试目录 |
 
 ## 远程仓库

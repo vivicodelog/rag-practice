@@ -67,6 +67,7 @@ class NL2SQLRequest(BaseModel):
     用户发一个自然语言问题，比如"列出所有作者的姓名和国籍"
     """
     question: str # ← 用户的问题
+    history: Optional[List[dict]] = []
 
 
 class NL2SQLResponse(BaseModel):

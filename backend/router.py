@@ -11,6 +11,7 @@ import traceback
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from loguru import logger
 
+from rag_forge.history import trim_history
 from rag_forge.agent.workflow import Workflow, WorkflowNode
 from rag_forge.agent.agent import system_prompt
 from rag_forge.agent.tools import get_weather, review_result, search_docs
@@ -45,11 +46,14 @@ def chat(request: ChatRequest):
         messages: list[BaseMessage] = [SystemMessage(content=system_prompt)]
 
         # 历史消息：user → HumanMessage，assistant → AIMessage
-        for msg in request.history or []:
+        trimmed = trim_history(request.history or [], state.llm, settings.MAX_HISTORY_ROUNDS)           
+        for msg in trimmed:
             if msg["role"] == "user":
                 messages.append(HumanMessage(content=msg["content"]))
             elif msg["role"] == "assistant":
                 messages.append(AIMessage(content=msg["content"]))
+            elif msg["role"] == "system":
+                messages.append(SystemMessage(content=msg["content"]))
 
         messages.append(HumanMessage(content=request.question))
         sources = []  # 来源列表，search_docs 搜到时在这里攒
@@ -259,7 +263,8 @@ def chat_workflow(request: ChatRequest):
     ]
 
     # 跑 Workflow...（先创建实例，再调用 run）
-    workflow = Workflow(nodes=nodes, llm=state.llm)
+    trimmed = trim_history(request.history or [], state.llm, settings.MAX_HISTORY_ROUNDS) 
+    workflow = Workflow(nodes=nodes, llm=state.llm,history=trimmed)
     result = workflow.run(request.question)
     return WorkflowResponse(answer=result["answer"], steps=result["steps"])# ── NL2SQL ──────────────────────────────────────────────
 
@@ -283,8 +288,8 @@ def nl2sql_chat(request: NL2SQLRequest):
     #     sql=result["sql"],
     #     columns=result["columns"],
     #     rows=result["rows"]
-    # )
-    result = nl2sql(request.question)
+    # ) 
+    result = nl2sql(request.question, request.history or [])
     return NL2SQLResponse(**result)
 #**result 写法等于上面三行：
 # Python 自动把 {"sql": "xxx", "columns": [...], ...} 展开成
