@@ -9,11 +9,11 @@ from loguru import logger
 from pydantic import SecretStr
 from langchain_deepseek import ChatDeepSeek
 from rag_forge.history import trim_history
-from rag_forge.agent.tools import get_weather, search_docs, trace_id_var
+from rag_forge.agent.tools import get_weather, query_database, search_docs, trace_id_var
 from rag_forge.config import settings
 
 
-tools = [get_weather, search_docs]
+tools = [get_weather, search_docs,query_database]
 
 # 从 prompts 目录加载系统提示词
 _prompt_path = os.path.join(settings.PROMPTS_DIR, "system.md")
@@ -81,7 +81,6 @@ def chat(message: str, history: list, agent,llm, max_rounds: int = 4):
     trace_id_var.set(trace_id)
     logger.info(f"[{trace_id}] 收到用户问题: {message[:50]}{'…' if len(message) > 50 else ''}")
     messages = trim_history(history,llm, max_rounds)
-
     messages.append({"role": "user", "content": message})
 
     for event in agent.stream(

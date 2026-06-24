@@ -14,7 +14,7 @@ from loguru import logger
 from rag_forge.history import trim_history
 from rag_forge.agent.workflow import Workflow, WorkflowNode
 from rag_forge.agent.agent import system_prompt
-from rag_forge.agent.tools import get_weather, review_result, search_docs
+from rag_forge.agent.tools import get_weather, query_database, review_result, search_docs
 from rag_forge.config import settings
 from rag_forge.data.loader import FileSource, build_vectorstore
 from rag_forge.embedding.embed import create_embeddings
@@ -39,7 +39,7 @@ def chat(request: ChatRequest):
 
     try:
         # 1. 把工具绑给 LLM
-        llm_with_tools = state.llm.bind_tools([get_weather, search_docs])
+        llm_with_tools = state.llm.bind_tools([get_weather, search_docs, query_database])
 
         # 2. 准备消息（用 system.md，LLM 才知道有工具可用）
        
@@ -92,6 +92,8 @@ def chat(request: ChatRequest):
                         ]
                 elif tool_name == "get_weather":
                     result = get_weather.invoke(tool_args)
+                elif tool_name == "query_database":
+                    result = query_database.invoke(tool_args)
                 else:
                     result = f"未知工具：{tool_name}"
 

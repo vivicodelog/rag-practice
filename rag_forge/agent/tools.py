@@ -83,8 +83,8 @@ def get_weather(city: str) -> str:
 
 @tool
 def search_docs(query: str) -> str:
-    """搜索本地知识库中的文档内容。当用户的问题涉及知识库中的文档时，必须调用此工具。
-    例如：询问某个文件的内容、技术概念、对比分析等，都先用此工具搜索。"""
+    """搜索本地知识库中的文档内容。当用户的问题涉及知识库中的文档时，调用此工具。
+    例如：询问某个文件的内容、技术概念、对比分析等。注意：查询作者、书籍、销量等结构化数据请用 query_database 工具，不要用本工具。"""
     if _vectordb is None or not _all_chunks:
         return "知识库尚未初始化，请先上传文档"
 
@@ -114,4 +114,51 @@ def search_docs(query: str) -> str:
 def review_result(passed: bool, score: int, issues: list[str], feedback: str) -> str:
     """审查答案质量。判断是否符合标准。"""
     return json.dumps({"passed": passed, "score": score, "issues": issues, "feedback": feedback})
+
+
+@tool
+def query_database(question: str) -> str:
+    """查询本地 SQLite 数据库。当用户询问书籍、作者、销售数据等数据库中的信息时使用此工具。
+
+    用法示例：
+      - "列出所有作者" → SELECT * FROM authors
+      - "谁买书最多" → 聚合查询
+      - "2024 年出版了哪些书" → 带条件查询
+    """
+    from nl2sql.agent import nl2sql
+    # ── 你的任务 ──
+    #
+    # 1. 从 nl2sql.agent 导入 nl2sql 函数
+    #    from nl2sql.agent import nl2sql
+    #    （注：放函数里面 import，避免模块启动时的循环依赖）
+    #
+    # 2. 调用 nl2sql(question)，拿到结果 dict
+    #    result = nl2sql(question)
+    #    返回格式：{"sql": "...", "columns": ["..."], "rows": [[...]], "error": None|str, "explanation": "..."}
+    #
+    # 3. 如果 result["error"] 有值 → 直接返回错误信息
+    #
+    # 4. 没有错误 → 把结果拼成易读的文本字符串，包含：
+    #    - SQL 语句（让 LLM 知道查了什么）
+    #    - 中文解释（result["explanation"]）
+    #    - 数据表格（列名 | 行，类似 search_docs 的拼法）
+    #
+    # 5. 返回这个文本字符串（工具必须返回 str，LLM 才能读懂）
+    #
+    # 提示：rows 是二维列表，用 " | ".join(row) 拼每一行
+    #       控制一下行数，最多 20 行就够了
+    #       columns 已经是中文名了（nl2sql 内部转过了）
+    #
+    # 参考上面 search_docs 的格式风格
+    result = nl2sql(question)
+    if result["error"]:
+      return result["error"]
+    data_columns = ''
+    data_rows = ''
+    for row in result["rows"][:20]:
+        data_rows += " | ".join(str(item) for item in row) + "\n"
+    #join是python写法
+    data_columns +=  " | ".join(result["columns"]) + "\n"
+    query_data = f"SQL: \n{result['sql']}\n\n解释：\n{result['explanation']}\n\n表名：\n{data_columns}\n\n数据：\n{data_rows}"
+    return query_data
 

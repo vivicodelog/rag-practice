@@ -13,9 +13,10 @@
 - ✅ **Workflow 模式** — Researcher 搜索 → Writer 写作 → Reviewer 审查，不通过则自动重写（最多 2 次）
 - ✅ **SSE 流式推送（Agent + Workflow）** — token 级实时推送，前端打字机效果；工具调用过程可见
 - ✅ **混合检索** — 向量语义搜索 + jieba 关键词匹配，结果更精准
-- ✅ **工具调用** — `search_docs`（文档搜索）+ `get_weather`（天气查询），可扩展
+- ✅ **工具调用** — `search_docs`（文档搜索）+ `query_database`（数据库查询）+ `get_weather`（天气查询），可扩展
 - ✅ **来源标注** — 回答附带文档来源和匹配度分数
 - ✅ **NL2SQL** — 自然语言转 SQL，查询后返回结果表格
+- ✅ **NL2SQL 注册为 Agent 工具** — 在 RAG 对话中直接查 SQLite 数据库（作者/书籍/销量等），LLM 自主选择 query_database 工具
 - ✅ **多轮对话** — Agent 模式支持上下文记忆，历史消息自动拼入 prompt
 
 ### 文档管理
@@ -125,7 +126,7 @@ rag-project/
 │   ├── config.py           # 配置管理
 │   ├── agent/
 │   │   ├── agent.py        # Agent 封装
-│   │   ├── tools.py        # 工具定义（search_docs / get_weather / review_result）
+│   │   ├── tools.py        # 工具定义（search_docs / query_database / get_weather / review_result）
 │   │   ├── workflow.py     # Workflow 编排核心（run + stream）
 │   │   └── prompts/
 │   │       ├── researcher.md  # 研究员提示词
@@ -155,13 +156,14 @@ rag-project/
 用户提问
     │
     ▼
-FastAPI → LLM（绑 search_docs / get_weather）
+FastAPI → LLM（绑 search_docs / query_database / get_weather）
     │
     ▼
 ┌─ Agent 循环（最多 3 轮）──────────────┐
 │  LLM 自主判断 → 调工具 → 执行 → 看结果 │
 │        ↕                              │
 │   search_docs（混合检索 ChromaDB + jieba）│
+│   query_database（NL2SQL → SQLite）     │
 │   get_weather（wttr.in 天气 API）       │
 └──────────────────────────────────────┘
     │
@@ -249,7 +251,8 @@ SSE 流式推送 → Vue 前端实时展示步骤状态 + 最终答案
 - [x] Workflow 编排：Researcher → Writer → Reviewer 多角色协作
 - [x] SSE 实时推送：前端可视化展示思考过程
 - [x] 评测体系：三模式对比 + LLM-as-Judge 打分
-- [ ] 支持更多工具（网络搜索、代码执行等）
-- [ ] 支持数据库作为文档源（预留了 DatabaseSource 类）
-- [ ] 单元测试完善
 - [x] 多轮对话支持
+- [x] NL2SQL 注册为 Agent 工具 — RAG 对话里可以直接查数据库
+- [ ] 支持更多工具（网络搜索、代码执行等）
+- [ ] 核心函数测试覆盖 — nl2sql、hybrid_search、workflow.run 写 pytest
+- [ ] Docker 部署 — FastAPI + Vue + Chroma 容器化
