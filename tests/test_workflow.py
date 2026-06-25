@@ -81,7 +81,7 @@ class TestWorkflowRun:
         ]
         llm = make_mock_llm(["北京人口约2189万", "北京是中国的首都，人口约2189万"])
 
-        result = Workflow(nodes=nodes, llm=llm).run("北京人口多少")
+        result = Workflow(nodes=nodes, llm=llm, history=[]).run("北京人口多少")
 
         # 最终答案
         assert result["answer"] == "北京是中国的首都，人口约2189万"
@@ -117,7 +117,7 @@ class TestWorkflowRun:
         # 给 LLM 一个特征明显的返回值
         llm = make_mock_llm(["【研究结果】", "最终回答"])
 
-        result = Workflow(nodes=nodes, llm=llm).run("问题")
+        result = Workflow(nodes=nodes, llm=llm, history=[]).run("问题")
 
         # Researcher 输出了 "【研究结果】"，Writer 的 prompt 应该包含它
         # 但我们无法直接看 prompt → 只能透过 Writer 的回答来推断
@@ -131,13 +131,13 @@ class TestWorkflowRun:
         ]
         llm = make_mock_llm(["单步回答"])
 
-        result = Workflow(nodes=nodes, llm=llm).run("问题")
+        result = Workflow(nodes=nodes, llm=llm, history=[]).run("问题")
         assert result["answer"] == "单步回答"
         assert len(result["steps"]) == 1
 
     def test_empty_nodes(self):
         """边界：空节点列表，不崩"""
-        result = Workflow(nodes=[], llm=MagicMock()).run("问题")
+        result = Workflow(nodes=[], llm=MagicMock(), history=[]).run("问题")
         assert result["answer"] == ""
         assert result["steps"] == []
 
@@ -147,7 +147,7 @@ class TestWorkflowRun:
             WorkflowNode(role="researcher", tools=[], prompt="研究", output_key="draft"),
         ]
         llm = make_mock_llm(["草稿"])
-        result = Workflow(nodes=nodes, llm=llm).run("问题")
+        result = Workflow(nodes=nodes, llm=llm, history=[]).run("问题")
         assert result["answer"] == ""           # 没有 answer key
         assert result["steps"][0]["output"] == "草稿"
 
@@ -165,7 +165,7 @@ class TestWorkflowRun:
         llm = MagicMock()
         llm.invoke.return_value = fake_response("答案")
 
-        Workflow(nodes=nodes, llm=llm).run("问题")
+        Workflow(nodes=nodes, llm=llm, history=[]).run("问题")
 
         # 验证 invoke 被调了 1 次
         assert llm.invoke.call_count == 1
@@ -235,7 +235,7 @@ class TestWorkflowWithReviewer:
             fake_response("审查通过"),                            # 3. reviewer 出结论
         ]
 
-        result = Workflow(nodes=nodes, llm=llm).run("北京人口")
+        result = Workflow(nodes=nodes, llm=llm, history=[]).run("北京人口")
 
         assert result["answer"] == "北京是首都"
         assert len(result["steps"]) == 3
@@ -290,7 +290,7 @@ class TestWorkflowWithReviewer:
             fake_response("审查通过"),                            # 6
         ]
 
-        result = Workflow(nodes=nodes, llm=llm).run("北京人口")
+        result = Workflow(nodes=nodes, llm=llm, history=[]).run("北京人口")
 
         assert result["answer"] == "北京是首都，数据来自2020年人口普查"
         assert len(result["steps"]) == 3
@@ -357,7 +357,7 @@ class TestWorkflowWithReviewer:
             fake_response("审查不通过"),                            # 9
         ]
 
-        result = Workflow(nodes=nodes, llm=llm).run("北京人口")
+        result = Workflow(nodes=nodes, llm=llm, history=[]).run("北京人口")
 
         assert result["answer"] == "北京是首都，数据来自2000年人口普查"
         assert len(result["steps"]) == 3

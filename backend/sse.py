@@ -70,14 +70,9 @@ def stream_workflow(question: str = Query(..., description="用户问题"),histo
             output_key="review",       # 不用 "answer"，不覆盖 Writer 的答案
             output_type="tool"
         )
-        # Step 3: 创建 Workflow 实例，传 nodes 和 state.llm
-        system_prompt = open(
-            os.path.join(settings.PROMPTS_DIR, "system.md"),
-            encoding="utf-8"
-        ).read().strip()
+        # Step 3: 创建 Workflow 实例，传 nodes 和 state.llm       
         history_list = json.loads(history)  
-        trimmed = trim_history(history_list, state.llm, settings.MAX_HISTORY_ROUNDS)
-        
+        trimmed = trim_history(history_list, state.llm, settings.MAX_HISTORY_ROUNDS)        
         
         workflow = Workflow(
             nodes=[

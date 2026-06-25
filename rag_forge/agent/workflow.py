@@ -22,7 +22,7 @@ class WorkflowNode:
 class Workflow:
     """编排多个步骤，按顺序执行，上一步产出传给下一步"""
 
-    def __init__(self, nodes: List[WorkflowNode], llm: Any,history: list[dict] = []):
+    def __init__(self, nodes: List[WorkflowNode], llm: Any,history: list[dict]):
         self.nodes = nodes
         self.llm = llm
         self.history = history
@@ -78,9 +78,8 @@ class Workflow:
                     # 找不到不崩 — 第二个参数 None 保证了万一没有 writer 节点，返回 None 而不是抛 StopIteration 异常
                     if writer_node:
                         writer_prompt = writer_node.prompt
-                        # 先保存 Writer 上次的答案，再恢复研究员原始结果
+                        # 先保存 Writer 上次的答案
                         results["previous_answer"] = results.get("answer", "")
-                        results["answer"] = results.get("research_data", results["answer"])
                         # 重写时追加上下文，不影响第一次写
                         writer_prompt += f"""
                             你之前写的版本：
