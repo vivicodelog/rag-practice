@@ -18,7 +18,7 @@ class Settings:
     MANIFEST_FILE: str = "data/manifest.json"
 
     # ---------- 嵌入模型 ----------
-    EMBEDDING_MODEL_PATH: str = "./modelscope_cache/models/BAAI/bge-small-zh-v1.5"
+    EMBEDDING_MODEL_PATH: str = "BAAI/bge-small-zh-v1.5"
     EMBEDDING_DEVICE: str = "cpu"
     EMBEDDING_NORMALIZE: bool = True
 

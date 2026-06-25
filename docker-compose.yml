@@ -1,0 +1,33 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # 持久化 Chroma 向量库
+      - chroma_data:/app/chroma_db
+      # 直接映射宿主 data 目录（已有文档立即可用）
+      - ./data:/app/data
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - LLM_MODEL=${LLM_MODEL:-deepseek-chat}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.1}
+      - HF_ENDPOINT=https://hf-mirror.com
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  chroma_data:

@@ -1,0 +1,30 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+env/
+.venv/
+*.egg-info/
+
+# 前端
+frontend/node_modules/
+frontend/dist/
+
+# 数据（用 volume 挂载，不进镜像）
+data/
+chroma_db/
+
+# 模型缓存（太大，不进镜像）
+modelscope_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# 文档
+*.md
