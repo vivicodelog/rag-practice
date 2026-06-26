@@ -12,6 +12,7 @@ class ChatRequest(BaseModel):
     """聊天请求"""
     question: str
     history: Optional[List[dict]] = []
+    session_id: Optional[str] = None
 
 
 class SourceItem(BaseModel):
@@ -68,6 +69,7 @@ class NL2SQLRequest(BaseModel):
     """
     question: str # ← 用户的问题
     history: Optional[List[dict]] = []
+    session_id: Optional[str] = None
 
 
 class NL2SQLResponse(BaseModel):
@@ -83,3 +85,26 @@ class NL2SQLResponse(BaseModel):
     rows: List[List]            # ← 数据，比如 [["张三", "中国"], ["李四", "美国"]]
     error: Optional[str] = None # ← 错误信息（没有错误就是 None）
     explanation: Optional[str] = None  # ← SQL 大白话解释（比如"查询所有作者的名字和国籍"）
+
+class SessionCreateRequest(BaseModel):
+    """创建会话请求"""
+    mode: str
+
+class SessionItem(BaseModel):
+    """会话信息"""
+    id: str
+    mode: str
+    title: str
+    message_count: int
+    created_at: str
+    updated_at: str
+
+class SessionDetail(BaseModel):
+    """会话详情"""
+    id: str
+    mode: str
+    title: str
+    message_count: int
+    created_at: str
+    updated_at: str
+    messages: List[dict] = []

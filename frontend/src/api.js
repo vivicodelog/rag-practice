@@ -1,11 +1,11 @@
 const BASE = "http://localhost:8000"
 
 /** 聊天 */
-export async function chat(question, history = []) {
+export async function chat(question, history = [],sessionId = null) {
   const res = await fetch(`${BASE}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, history }),
+    body: JSON.stringify({ question, history, session_id: sessionId }),
   })
   return res.json()
 }
@@ -45,12 +45,36 @@ export async function getDeleteChoices() {
 }
 
 /** NL2SQL：自然语言 → SQL → 查询结果 */
-export async function nl2sql(question,history = []) {
+export async function nl2sql(question,history = [], sessionId = null) {
  
   const res = await fetch(`${BASE}/nl2sql`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question ,history }),
+    body: JSON.stringify({ question ,history, session_id: sessionId }),
   })
   return res.json()
+}
+
+export async function getSessions(mode) {
+  const res = await fetch(`${BASE}/sessions?mode=${mode}`)
+  return res.json()
+}
+
+export async function getSession(id) {
+  const res = await fetch(`${BASE}/sessions/${id}`)
+  return res.json()
+}
+
+export async function createSession(mode) {
+  const res = await fetch(`${BASE}/sessions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode }),
+  })
+  return res.json()
+}
+
+export async function deleteSession(id) {
+  const res = await fetch(`${BASE}/sessions/${id}`, { method: "DELETE" })
+  return res.json()   
 }

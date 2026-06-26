@@ -4,6 +4,7 @@ import os
 from fastapi import APIRouter, HTTPException
 from loguru import logger
 
+from backend.database import save_message
 from rag_forge.history import trim_history
 from rag_forge.agent.workflow import Workflow, WorkflowNode
 from rag_forge.agent.agent import system_prompt
@@ -75,6 +76,9 @@ def chat(request: ChatRequest):
                 messages.append(ToolMessage(content=result, tool_call_id=tool_call["id"]))
 
         answer = messages[-1].content if isinstance(messages[-1].content, str) else ""
+        if request.session_id:
+            save_message(request.session_id, "user", request.question)
+            save_message(request.session_id, "assistant", answer)
         return ChatResponse(answer=answer, sources=sources)
 
     except Exception as e:
@@ -117,4 +121,7 @@ def chat_workflow(request: ChatRequest):
     trimmed = trim_history(request.history or [], state.llm, settings.MAX_HISTORY_ROUNDS)
     workflow = Workflow(nodes=nodes, llm=state.llm, history=trimmed)
     result = workflow.run(request.question)
+    if request.session_id:
+        save_message(request.session_id, "user", request.question)
+        save_message(request.session_id, "assistant", result["answer"])
     return WorkflowResponse(answer=result["answer"], steps=result["steps"])

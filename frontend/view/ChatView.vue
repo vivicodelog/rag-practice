@@ -1,40 +1,52 @@
 <template>
-  <div class="chat-container">
-    <!-- 消息列表 -->
-    <div class="messages" ref="msgBox">
-      <div v-for="(msg, i) in messages" :key="i" class="message-row" :class="msg.role">
-        <div class="bubble">
-          <div class="content">{{ msg.content }}</div>
-          <div v-if="msg.sources && msg.sources.length" class="sources">
-            <span v-for="s in msg.sources" :key="s.filename" class="source-tag">
-              📄 {{ s.filename }} {{ (s.score * 100).toFixed(0) }}%
-            </span>
+  <div class="chat-layout">
+    <SessionSidebar
+      mode="agent"
+      :currentSessionId="currentSessionId"
+      @select="selectSession"
+      @create="handleCreate"
+      @delete="handleDelete"
+    />
+    <div class="chat-container">
+      <!-- 消息列表 -->
+      <div class="messages" ref="msgBox">
+        <div v-for="(msg, i) in messages" :key="i" class="message-row" :class="msg.role">
+          <div class="bubble">
+            <div class="content">{{ msg.content }}</div>
+            <div v-if="msg.sources && msg.sources.length" class="sources">
+              <span v-for="s in msg.sources" :key="s.filename" class="source-tag">
+                📄 {{ s.filename }} {{ (s.score * 100).toFixed(0) }}%
+              </span>
+            </div>
+          </div>
+        </div>
+        <!-- 加载中动画 -->
+        <div v-if="loading" class="message-row assistant">
+          <div class="bubble loading-bubble">
+            <span class="dot-pulse">思考中<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></span>
           </div>
         </div>
       </div>
-      <!-- 加载中动画 -->
-      <div v-if="loading" class="message-row assistant">
-        <div class="bubble loading-bubble">
-          <span class="dot-pulse">思考中<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></span>
-        </div>
+      <!-- 输入区 -->
+      <div class="input-area">
+        <input v-model="question" @keyup.enter="send" placeholder="输入问题..." />
+        <button @click="send" :disabled="loading || !question.trim()">{{ loading ? '思考中' : '发送' }}</button>
       </div>
-    </div>
-    <!-- 输入区 -->
-    <div class="input-area">
-      <input v-model="question" @keyup.enter="send" placeholder="输入问题..." />
-      <button @click="send" :disabled="loading || !question.trim()">{{ loading ? '思考中' : '发送' }}</button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, nextTick, watch } from 'vue'
-import { chat } from '../src/api.js'
+import { ref, nextTick, watch, onMounted } from 'vue'
+import { chat, getSession, createSession, deleteSession } from '../src/api.js'
+import SessionSidebar from '../src/components/SessionSidebar.vue'
 
 const question = ref('')
 const messages = ref([])
 const loading = ref(false)
 const msgBox = ref(null)
+
+const currentSessionId = ref(null)
 
 // 有新消息时自动滚到底部
 watch([messages, loading], async () => {
@@ -44,7 +56,34 @@ watch([messages, loading], async () => {
   }
 }, { deep: true })
 
-async function send() {  
+// 会话管理
+async function selectSession(id) {
+  currentSessionId.value = id
+  const detail = await getSession(id)
+  messages.value = detail.messages || []
+}
+async function handleCreate() {
+  const s = await createSession('agent')
+  currentSessionId.value = s.id
+  messages.value = []
+}
+async function handleDelete(id) {
+  await deleteSession(id)
+  if (currentSessionId.value === id) {
+    currentSessionId.value = null
+    messages.value = []
+  }
+}
+
+onMounted(async () => {
+  // 自动创建第一个会话（侧边栏会在 mode 变化时自行加载列表）
+  if (!currentSessionId.value) {
+    const s = await createSession('agent')
+    currentSessionId.value = s.id
+  }
+})
+
+async function send() {
   if (!question.value.trim()) return
 
 
@@ -58,7 +97,7 @@ async function send() {
   question.value = ''
   loading.value = true
 
-  
+
   const history = JSON.stringify(
     messages.value.slice(0, -2).map(m => ({
       role: m.role,
@@ -66,7 +105,8 @@ async function send() {
     }))
   )
 
-  const url = `http://localhost:8000/chat/agent/stream?question=${encodeURIComponent(q)}&history=${encodeURIComponent(history)}`
+  const sid = currentSessionId.value
+  const url = `http://localhost:8000/chat/agent/stream?question=${encodeURIComponent(q)}&history=${encodeURIComponent(history)}${sid ? `&session_id=${sid}` : ''}`
   const es = new EventSource(url)
   let doneReceived = false  // 防止 error 在 done 之前触发
   
@@ -100,7 +140,12 @@ async function send() {
 
 <style scoped>
 /* ===== 整体布局 ===== */
+.chat-layout {
+  display: flex;
+  height: calc(100vh - 120px);
+}
 .chat-container {
+  flex: 1;
   max-width: 860px;
   margin: 0 auto;
   height: 80vh;

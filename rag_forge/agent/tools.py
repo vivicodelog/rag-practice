@@ -126,7 +126,6 @@ def query_database(question: str) -> str:
       - "2024 年出版了哪些书" → 带条件查询
     """
     from nl2sql.agent import nl2sql
-    # ── 你的任务 ──
     #
     # 1. 从 nl2sql.agent 导入 nl2sql 函数
     #    from nl2sql.agent import nl2sql

@@ -1,89 +1,128 @@
 <template>
-  <div class="workflow-chat">
-    <!-- 消息列表 -->
-    <div class="messages" ref="msgBox">
-      <div v-for="(msg, i) in messages" :key="i" class="message-row" :class="msg.role">
+  <div class="workflow-layout">
+    <SessionSidebar
+      mode="workflow"
+      :currentSessionId="currentSessionId"
+      @select="selectSession"
+      @create="handleCreate"
+      @delete="handleDelete"
+    />
+    <div class="workflow-chat">
+      <!-- 消息列表 -->
+      <div class="messages" ref="msgBox">
+        <div v-for="(msg, i) in messages" :key="i" class="message-row" :class="msg.role">
 
-        <!-- 用户消息 -->
-        <div v-if="msg.role === 'user'" class="bubble user-bubble">
-          {{ msg.content }}
-        </div>
-
-        <!-- AI 消息 -->
-        <div v-else class="bubble assistant-bubble">
-
-          <!-- 工作流步骤 -->
-          <div v-if="msg.steps && msg.steps.length" class="steps">
-            <div v-for="s in msg.steps" :key="s.role" class="step-row">
-              <!-- 状态图标 -->
-              <span class="step-icon" :class="s.status">
-                <template v-if="s.status === 'pending'">○</template>
-                <template v-else-if="s.status === 'running'">◌</template>
-                <template v-else-if="s.status === 'done'">✓</template>
-              </span>
-              <!-- 角色名 -->
-              <span class="step-role">
-                {{ { researcher: '🔍 研究员', writer: '✍️ 写作者', reviewer: '✅ 审查员' }[s.role] || s.role }}
-              </span>
-              <!-- 审查结论 -->
-              <span v-if="s.role === 'reviewer' && s.passed !== null" class="step-verdict" :class="{ pass: s.passed, fail: !s.passed }">
-                {{ s.passed ? '通过' : `未通过（已重写 ${s.rewriteCount} 次）` }}
-              </span>
-              <!-- 审查问题列表 -->
-              <div v-if="s.role === 'reviewer' && s.passed === false && s.issues.length" class="step-issues">
-                <div v-for="(issue, j) in s.issues" :key="j" class="issue-item">• {{ issue }}</div>
-              </div>
-              <!-- 工具调用记录 -->
-              <div v-if="s.actions && s.actions.length" class="step-actions">
-                <div v-for="(action, j) in s.actions" :key="j" class="action-item">{{ action }}</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 步骤与答案的分隔线 -->
-          <div v-if="msg.content" class="divider"></div>
-
-          <!-- 最终答案 -->
-          <div v-if="msg.content" class="answer">
+          <!-- 用户消息 -->
+          <div v-if="msg.role === 'user'" class="bubble user-bubble">
             {{ msg.content }}
           </div>
 
-          <!-- 来源标签 -->
-          <div v-if="msg.sources && msg.sources.length" class="sources">
-            <span v-for="s in msg.sources" :key="s.filename" class="source-tag">
-              📄 {{ s.filename }} {{ (s.score * 100).toFixed(0) }}%
-            </span>
+          <!-- AI 消息 -->
+          <div v-else class="bubble assistant-bubble">
+
+            <!-- 工作流步骤 -->
+            <div v-if="msg.steps && msg.steps.length" class="steps">
+              <div v-for="s in msg.steps" :key="s.role" class="step-row">
+                <!-- 状态图标 -->
+                <span class="step-icon" :class="s.status">
+                  <template v-if="s.status === 'pending'">○</template>
+                  <template v-else-if="s.status === 'running'">◌</template>
+                  <template v-else-if="s.status === 'done'">✓</template>
+                </span>
+                <!-- 角色名 -->
+                <span class="step-role">
+                  {{ { researcher: '🔍 研究员', writer: '✍️ 写作者', reviewer: '✅ 审查员' }[s.role] || s.role }}
+                </span>
+                <!-- 审查结论 -->
+                <span v-if="s.role === 'reviewer' && s.passed !== null" class="step-verdict" :class="{ pass: s.passed, fail: !s.passed }">
+                  {{ s.passed ? '通过' : `未通过（已重写 ${s.rewriteCount} 次）` }}
+                </span>
+                <!-- 审查问题列表 -->
+                <div v-if="s.role === 'reviewer' && s.passed === false && s.issues.length" class="step-issues">
+                  <div v-for="(issue, j) in s.issues" :key="j" class="issue-item">• {{ issue }}</div>
+                </div>
+                <!-- 工具调用记录 -->
+                <div v-if="s.actions && s.actions.length" class="step-actions">
+                  <div v-for="(action, j) in s.actions" :key="j" class="action-item">{{ action }}</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 步骤与答案的分隔线 -->
+            <div v-if="msg.content" class="divider"></div>
+
+            <!-- 最终答案 -->
+            <div v-if="msg.content" class="answer">
+              {{ msg.content }}
+            </div>
+
+            <!-- 来源标签 -->
+            <div v-if="msg.sources && msg.sources.length" class="sources">
+              <span v-for="s in msg.sources" :key="s.filename" class="source-tag">
+                📄 {{ s.filename }} {{ (s.score * 100).toFixed(0) }}%
+              </span>
+            </div>
+
+            <!-- 错误信息 -->
+            <div v-if="msg.error" class="error-msg">{{ msg.error }}</div>
           </div>
+        </div>
 
-          <!-- 错误信息 -->
-          <div v-if="msg.error" class="error-msg">{{ msg.error }}</div>
+        <!-- 加载动画 -->
+        <div v-if="loading" class="message-row assistant">
+          <div class="bubble loading-bubble">
+            <span class="dot-pulse">思考中<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></span>
+          </div>
         </div>
       </div>
 
-      <!-- 加载动画 -->
-      <div v-if="loading" class="message-row assistant">
-        <div class="bubble loading-bubble">
-          <span class="dot-pulse">思考中<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></span>
-        </div>
+      <!-- 输入区 -->
+      <div class="input-area">
+        <input v-model="question" @keyup.enter="send" placeholder="输入问题..." :disabled="loading" />
+        <button @click="send" :disabled="loading || !question.trim()">{{ loading ? '思考中' : '发送' }}</button>
       </div>
-    </div>
-
-    <!-- 输入区 -->
-    <div class="input-area">
-      <input v-model="question" @keyup.enter="send" placeholder="输入问题..." :disabled="loading" />
-      <button @click="send" :disabled="loading || !question.trim()">{{ loading ? '思考中' : '发送' }}</button>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, nextTick, watch } from 'vue'
+import { ref, nextTick, watch, onMounted } from 'vue'
+import { getSession, createSession, deleteSession } from '../src/api.js'
+import SessionSidebar from '../src/components/SessionSidebar.vue'
 
 // 消息列表：{ role, content, steps, sources, error }
 const messages = ref([])
 const question = ref('')
 const loading = ref(false)
 const msgBox = ref(null)
+
+const currentSessionId = ref(null)
+
+// 会话管理
+async function selectSession(id) {
+  currentSessionId.value = id
+  const detail = await getSession(id)
+  messages.value = detail.messages || []
+}
+async function handleCreate() {
+  const s = await createSession('workflow')
+  currentSessionId.value = s.id
+  messages.value = []
+}
+async function handleDelete(id) {
+  await deleteSession(id)
+  if (currentSessionId.value === id) {
+    currentSessionId.value = null
+    messages.value = []
+  }
+}
+
+onMounted(async () => {
+  if (!currentSessionId.value) {
+    const s = await createSession('workflow')
+    currentSessionId.value = s.id
+  }
+})
 
 // 消息或 loading 变化时自动滚到底部
 watch([messages, loading], async () => {
@@ -122,7 +161,8 @@ function send() {
       content: m.content || ''
     }))
   )
-  const url = `http://localhost:8000/chat/workflow/stream?question=${encodeURIComponent(q)}&history=${encodeURIComponent(history)}`
+  const sid = currentSessionId.value
+  const url = `http://localhost:8000/chat/workflow/stream?question=${encodeURIComponent(q)}&history=${encodeURIComponent(history)}${sid ? `&session_id=${sid}` : ''}`
   const es = new EventSource(url)
   let doneReceived = false  // 防止 error 在 done 之前触发
 
@@ -184,7 +224,12 @@ function send() {
 </script>
 
 <style scoped>
+.workflow-layout {
+  display: flex;
+  height: calc(100vh - 120px);
+}
 .workflow-chat {
+  flex: 1;
   max-width: 860px;
   margin: 0 auto;
   height: 80vh;

@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage, BaseMessage
 
+from backend.database import save_message
 from rag_forge.agent.workflow import Workflow, WorkflowNode
 from rag_forge.agent.tools import search_docs, review_result, get_weather
 from rag_forge.config import settings
@@ -22,7 +23,7 @@ router = APIRouter()
 
 
 @router.get("/chat/workflow/stream")
-def stream_workflow(question: str = Query(..., description="用户问题"),history: str = Query("[]"),):
+def stream_workflow(question: str = Query(..., description="用户问题"),history: str = Query("[]"),session_id: str = None):
     """
     SSE 流式接口。
 
@@ -89,14 +90,18 @@ def stream_workflow(question: str = Query(..., description="用户问题"),histo
         #   try/except 包一下，出错 yield error 事件，把错误包装成 SSE 事件正常返回（status 200），前端能读到错误消息
         try:
             for event in workflow.stream(question):
+                if event["event"] == "node_end" and session_id and event["data"]["role"] == "writer":
+                    save_message(session_id, "user", question) 
+                    save_message(session_id, "assistant", event["data"]["output"])
                 yield _sse(event["event"], event["data"])
+            
         except Exception as e:
             yield _sse("error", {"message": str(e)})
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.get("/chat/agent/stream")
-def stream_agent(question: str = Query(..., description="用户问题"),history: str = Query("[]"),):
+def stream_agent(question: str = Query(..., description="用户问题"),history: str = Query("[]"),session_id: str = None):
     """                                                         history 参数收到的是 [{"role":"user","content":"hi"}] —— 一个JSON 格式的字符串
     SSE 流式问答。
 
@@ -195,6 +200,9 @@ def stream_agent(question: str = Query(..., description="用户问题"),history:
 
                 # 没调工具 → 这就是最终答案
                 final_answer = collected.content
+                if session_id:
+                    save_message(session_id, "user", question)
+                    save_message(session_id, "assistant", final_answer)
                 break
 
             yield _sse("done", {"answer": final_answer, "sources": sources})

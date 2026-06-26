@@ -1,5 +1,13 @@
 <template>
-  <div class="nl2sql-chat">
+  <div class="nl2sql-layout">
+    <SessionSidebar
+      mode="nl2sql"
+      :currentSessionId="currentSessionId"
+      @select="selectSession"
+      @create="handleCreate"
+      @delete="handleDelete"
+    />
+    <div class="nl2sql-chat">
     <!-- ===== 消息列表 ===== -->
     <!--
       v-for 遍历 messages，每条消息根据 role 分两种展示：
@@ -59,11 +67,12 @@
       <button @click="send" :disabled="loading || !question.trim()">{{ loading ? '思考中' : '发送' }}</button>
     </div>
   </div>
-</template>
+</div></template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { nl2sql } from '../src/api.js'
+import { ref, computed, onMounted } from 'vue'
+import { nl2sql, getSession, createSession, deleteSession } from '../src/api.js'
+import SessionSidebar from '../src/components/SessionSidebar.vue'
 
 /*
   vue-echarts 用法：
@@ -87,9 +96,36 @@ const messages = ref([])
 const question = ref('')
 const loading = ref(false)
 
+const currentSessionId = ref(null)
+
+// 会话管理
+async function selectSession(id) {
+  currentSessionId.value = id
+  const detail = await getSession(id)
+  messages.value = detail.messages || []
+}
+async function handleCreate() {
+  const s = await createSession('nl2sql')
+  currentSessionId.value = s.id
+  messages.value = []
+}
+async function handleDelete(id) {
+  await deleteSession(id)
+  if (currentSessionId.value === id) {
+    currentSessionId.value = null
+    messages.value = []
+  }
+}
+
+onMounted(async () => {
+  if (!currentSessionId.value) {
+    const s = await createSession('nl2sql')
+    currentSessionId.value = s.id
+  }
+})
 
 // 在这里写 send()
-async function send() { 
+async function send() {
   if (!question.value.trim()) return
   const q = question.value
   messages.value.push({ role: 'user', content: q })
@@ -101,7 +137,7 @@ async function send() {
   }))
 
   try {
-    const res = await nl2sql(q,history)
+    const res = await nl2sql(q, history, currentSessionId.value)
     messages.value.push({
       role: 'assistant',
       sql: res.sql,
@@ -164,6 +200,10 @@ function getChartOption(msg) {
 
 <style scoped>
 /* ===== 整体布局 ===== */
+.nl2sql-layout {
+  display: flex;
+  height: calc(100vh - 120px);
+}
 .nl2sql-chat {
   display: flex;
   flex-direction: column;
