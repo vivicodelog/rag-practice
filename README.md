@@ -17,7 +17,8 @@
 - ✅ **来源标注** — 回答附带文档来源和匹配度分数
 - ✅ **NL2SQL** — 自然语言转 SQL，查询后返回结果表格
 - ✅ **NL2SQL 注册为 Agent 工具** — 在 RAG 对话中直接查 SQLite 数据库（作者/书籍/销量等），LLM 自主选择 query_database 工具
-- ✅ **多轮对话** — Agent 模式支持上下文记忆，历史消息自动拼入 prompt
+- ✅ **多轮对话** — Agent / Workflow / NL2SQL 均支持上下文记忆，历史消息自动拼入 prompt
+- ✅ **多会话管理** — 支持新建/切换/删除会话，Agent / Workflow / NL2SQL 三种模式独立会话，SQLite 持久化
 
 ### 文档管理
 - ✅ **上传文档** — 支持 TXT / PDF / DOCX / MD，自动构建知识库
@@ -38,7 +39,10 @@
 |------|------|
 | **💬 问答(Agent)** | 单 Agent 气泡对话，直接提问 |
 | **🔁 工作流** | Workflow 模式，实时展示研究员→写作者→审查员的执行过程和最终答案 |
+| **🗂️ NL2SQL** | 自然语言转 SQL，查询结果表格展示，含可解释性说明 |
 | **📁 文档管理** | 上传/删除文档，管理知识库 |
+
+每个标签页左侧有**会话列表**，支持新建/切换/删除会话。
 
 ---
 
@@ -105,7 +109,13 @@ rag-project/
 │
 ├── backend/                # FastAPI 后端
 │   ├── main.py             # 应用入口（lifespan 初始化）
-│   ├── router.py           # API 路由（chat / workflow / upload / delete / health）
+│   ├── router.py           # API 路由统一入口（委托到 routers/）
+│   ├── routers/             # 按功能拆分的子路由
+│   │   ├── chat.py         #   Agent / Workflow 聊天
+│   │   ├── documents.py    #   上传/删除/文档列表/健康检查
+│   │   ├── nl2sql.py       #   NL2SQL 查询
+│   │   └── sessions.py     #   会话 CRUD
+│   ├── database.py         # SQLite 会话存储层
 │   ├── sse.py              # SSE 流式推送（Agent + Workflow 实时事件）
 │   ├── schemas.py          # 请求/响应数据模型
 │   └── state.py            # 运行时全局状态

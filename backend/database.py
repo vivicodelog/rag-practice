@@ -1,0 +1,112 @@
+"""
+SQLite 会话存储层。
+提供会话和消息的 CRUD 操作。
+"""
+
+import sqlite3
+import uuid
+from datetime import datetime, timezone
+
+_db = None
+DB_PATH = "data/conversations.db"
+
+
+def get_db(path=None):
+    global _db
+    if _db is None:
+        _db = sqlite3.connect(path or DB_PATH, check_same_thread=False)
+        _db.row_factory = sqlite3.Row   #注释：让查出来的行像字典一样能按列名取值
+    return _db
+
+def init_db(db=None):
+    conn = db or get_db()
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            mode TEXT NOT NULL CHECK(mode IN ('agent', 'workflow', 'nl2sql')),
+            title TEXT NOT NULL DEFAULT '新对话',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
+        CREATE INDEX IF NOT EXISTS idx_sessions_mode ON sessions(mode);
+    """)
+    conn.commit()
+
+def create_session(mode: str, title: str = "新对话"):
+    conn = get_db()
+    session_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute("""
+        INSERT INTO sessions (id, mode, title, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (session_id, mode, title, now, now))
+    conn.commit()
+    row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    # 关键：把刚插入的行查出来，转成 dict 返回
+    return dict(row)
+
+def get_sessions(mode: str):
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT s.*, COUNT(m.id) AS message_count
+        FROM sessions s
+        LEFT JOIN messages m ON m.session_id = s.id
+        WHERE s.mode = ?
+        GROUP BY s.id
+        ORDER BY s.updated_at DESC
+    """, (mode,)).fetchall()
+    return [dict(r) for r in rows]   # 空列表也安全
+
+
+def get_session(session_id: str):
+    conn = get_db()
+    row = conn.execute("""
+        SELECT s.*, COUNT(m.id) AS message_count
+        FROM sessions s
+        LEFT JOIN messages m ON m.session_id = s.id
+        WHERE s.id = ?
+        GROUP BY s.id
+    """, (session_id,)).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+def get_messages(session_id: str ):
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT m.*
+        FROM messages m 
+        WHERE m.session_id = ?
+        ORDER BY m.created_at ASC
+    """, (session_id,)).fetchall()
+    return [dict(r) for r in rows]   # 空列表也安全
+
+def save_message(session_id: str, role: str, content: str):
+    conn = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    # 1. 往 messages 表插一条
+    conn.execute("""
+        INSERT INTO messages (session_id, role, content, created_at)
+        VALUES (?, ?, ?, ?)
+    """, (session_id, role, content, now))
+    # 2. 更新 sessions 的更新时间
+    conn.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id))
+    conn.commit()
+
+
+def delete_session(session_id: str):
+    conn = get_db()    
+    conn.execute("""DELETE FROM messages WHERE session_id = ?""", (session_id,))
+    conn.execute("""DELETE FROM sessions WHERE id = ?""", (session_id,))
+    conn.commit()
+
