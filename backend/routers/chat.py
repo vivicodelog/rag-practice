@@ -4,7 +4,7 @@ import os
 from fastapi import APIRouter, HTTPException
 from loguru import logger
 
-from backend.database import save_message
+from backend.database import get_messages, save_message
 from rag_forge.history import trim_history
 from rag_forge.agent.workflow import Workflow, WorkflowNode
 from rag_forge.agent.agent import system_prompt
@@ -29,7 +29,15 @@ def chat(request: ChatRequest):
         llm_with_tools = state.llm.bind_tools([get_weather, search_docs, query_database])
         messages: list[BaseMessage] = [SystemMessage(content=system_prompt)]
 
-        trimmed = trim_history(request.history or [], state.llm, settings.MAX_HISTORY_ROUNDS)
+        # 从数据库加载当前会话历史
+        history = []
+        if request.session_id:
+            db_msgs = get_messages(request.session_id)
+            history = [{"role": m["role"], "content": m["content"]} for m in db_msgs]
+        # 没有 session_id 才用前端传的
+        else:
+            history = request.history or []
+        trimmed = trim_history(history, state.llm, settings.MAX_HISTORY_ROUNDS)
         for msg in trimmed:
             if msg["role"] == "user":
                 messages.append(HumanMessage(content=msg["content"]))
@@ -117,8 +125,15 @@ def chat_workflow(request: ChatRequest):
         output_type="tool",
     )
     nodes = [researcher_node, writer_node, reviewer_node]
-
-    trimmed = trim_history(request.history or [], state.llm, settings.MAX_HISTORY_ROUNDS)
+    # 从数据库加载当前会话历史
+    history = []
+    if request.session_id:
+        db_msgs = get_messages(request.session_id)
+        history = [{"role": m["role"], "content": m["content"]} for m in db_msgs]
+    # 没有 session_id 才用前端传的
+    else:
+        history = request.history or []
+    trimmed = trim_history(history, state.llm, settings.MAX_HISTORY_ROUNDS)
     workflow = Workflow(nodes=nodes, llm=state.llm, history=trimmed)
     result = workflow.run(request.question)
     if request.session_id:

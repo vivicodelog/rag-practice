@@ -5,6 +5,7 @@ SQLite 会话存储层。
 
 import sqlite3
 import uuid
+import json
 from datetime import datetime, timezone
 
 _db = None
@@ -34,7 +35,12 @@ def init_db(db=None):
             session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
             role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
             content TEXT NOT NULL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            sql TEXT,
+            cols TEXT,
+            rows_data TEXT,
+            error TEXT
+
         );
 
         CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
@@ -81,24 +87,31 @@ def get_session(session_id: str):
         return None
     return dict(row)
 
-def get_messages(session_id: str ):
+def get_messages(session_id: str):
     conn = get_db()
     rows = conn.execute("""
         SELECT m.*
-        FROM messages m 
+        FROM messages m
         WHERE m.session_id = ?
         ORDER BY m.created_at ASC
     """, (session_id,)).fetchall()
-    return [dict(r) for r in rows]   # 空列表也安全
+    result = []
+    for r in rows:
+        d = dict(r)
+        # 数据库列名 cols/rows_data → 前端期望的 columns/rows
+        d["columns"] = json.loads(d.pop("cols")) if d.get("cols") else None
+        d["rows"] = json.loads(d.pop("rows_data")) if d.get("rows_data") else None
+        result.append(d)
+    return result
 
-def save_message(session_id: str, role: str, content: str):
+def save_message(session_id: str, role: str, content: str, sql: str = None, cols = None, rows_data = None, error = None):
     conn = get_db()
     now = datetime.now(timezone.utc).isoformat()
     # 1. 往 messages 表插一条
     conn.execute("""
-        INSERT INTO messages (session_id, role, content, created_at)
-        VALUES (?, ?, ?, ?)
-    """, (session_id, role, content, now))
+        INSERT INTO messages (session_id, role, content, created_at, sql, cols, rows_data, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (session_id, role, content, now, sql, json.dumps(cols, ensure_ascii=False) if cols else None, json.dumps(rows_data, ensure_ascii=False) if rows_data else None, error))
     # 2. 更新 sessions 的更新时间
     conn.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (now, session_id))
     conn.commit()

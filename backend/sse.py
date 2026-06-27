@@ -13,7 +13,8 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, Tool
 
 from backend.database import save_message
 from rag_forge.agent.workflow import Workflow, WorkflowNode
-from rag_forge.agent.tools import search_docs, review_result, get_weather
+
+from rag_forge.agent.tools import search_docs, review_result, get_weather,query_database
 from rag_forge.config import settings
 from rag_forge.retrieval.hybrid import hybrid_search
 from rag_forge.history import trim_history
@@ -120,7 +121,7 @@ def stream_agent(question: str = Query(..., description="用户问题"),history:
             encoding="utf-8"
         ).read().strip()
 
-        llm_with_tools = state.llm.bind_tools([get_weather, search_docs])
+        llm_with_tools = state.llm.bind_tools([get_weather, search_docs, query_database])
         history_list = json.loads(history)  
         trimmed = trim_history(history_list, state.llm, settings.MAX_HISTORY_ROUNDS)
         messages: list = [SystemMessage(content=system_prompt)]
