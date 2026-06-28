@@ -16,12 +16,16 @@ AI 知识库问答助手，RAG + Agent + Workflow 全栈项目。
 - 回答简短有重点，不吹牛
 - 前端默认已掌握，不需要解释基础概念
 
-## 当前学习重点（2026-06-23）
+## 当前学习重点（2026-06-28）
 - ✅ 已跑通：FastAPI + Vue 分离、单 Agent（bind_tools）、Service 层
 - ✅ 已跑通：Workflow 编排（Researcher → Writer → Reviewer）
 - ✅ 已跑通：NL2SQL 三阶段（SQLite → Agent → column_meta → 前端展示 + 自愈循环 + 可解释性）
 - ✅ 已跑通：多轮对话历史公共模块（history.py + create_llm()），覆盖 RAG/Workflow/NL2SQL
-- 🚧 待做：测试覆盖率、NL2SQL 注册为 Agent 工具、Docker 部署
+- ✅ 已跑通：NL2SQL 注册为 Agent 工具（query_database 已绑定至 agent + SSE + chat）
+- ✅ 已跑通：Docker 部署（Dockerfile.backend + Dockerfile.frontend + docker-compose.yml）
+- ✅ 已跑通：多会话 Phase 1（SQLite 存储 + CRUD API + SessionSidebar 接入三个前端页面）
+- ✅ 已跑通：用户系统 Phase 2（JWT 登录/注册 + bcrypt 密码加密 + 会话数据隔离）
+- 🚧 待做：测试覆盖率（缺 test_auth_api.py）、旧文件清理（NL2SQLChat.vue 已删）
 
 ## 关键文件索引
 | 文件 | 说明 |
@@ -36,6 +40,8 @@ AI 知识库问答助手，RAG + Agent + Workflow 全栈项目。
 | `backend/state.py` | 应用状态 |
 | `backend/schemas.py` | Pydantic 模型 |
 | `backend/sse.py` | SSE 流式推送 |
+| `backend/auth.py` | JWT 工具函数 |
+| `backend/routers/auth.py` | 注册/登录/鉴权 API |
 | `nl2sql/agent.py` | NL2SQL Agent |
 | `tests/` | 单元测试目录 |
 

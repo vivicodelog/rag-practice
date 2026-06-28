@@ -51,6 +51,11 @@ class Settings:
     # ---------- 对话 ----------
     MAX_HISTORY_ROUNDS: int = 4
 
+    # ---------- JWT ----------
+    JWT_SECRET: str = "rag-practice-jwt-secret-key-for-hs256"
+
+
+
     def __init__(self):
         self.DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 

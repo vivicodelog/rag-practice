@@ -17,8 +17,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
+from backend.database import init_db
 from backend.router import router
 from backend.sse import router as sse_router
+from backend.routers.auth import router as auth_router
+
 import backend.state as state
 
 from rag_forge.agent.agent import create_llm
@@ -32,6 +35,8 @@ from rag_forge.data.manifest import sync_manifest
 async def lifespan(app: FastAPI):
     """启动时加载模型和构建向量库"""
     logger.info("正在初始化 RAG 系统...")
+
+    init_db()  # ← 建 sessions / users 表
 
     sync_manifest(settings.DATA_DIR, settings.MANIFEST_FILE)
 
@@ -107,6 +112,8 @@ app.add_middleware(
 
 app.include_router(router)
 app.include_router(sse_router)
+app.include_router(auth_router)
+
 
 if __name__ == "__main__":
     import uvicorn

@@ -4,21 +4,31 @@
     <header class="app-header">
       <span class="app-logo">📚</span>
       <span class="app-title">RAG 知识库问答</span>
+      <span class="header-right">
+        <button v-if="loggedIn" class="btn-logout" @click="handleLogout">退出登录</button>
+      </span>
     </header>
 
-    <!-- 标签切换 -->
-    <div class="tabs">
-      <button :class="{ active: tab === 'chat' }" @click="tab = 'chat'">💬 问答(Agent)</button>
-      <button :class="{ active: tab === 'nl2sql' }" @click="tab = 'nl2sql'">💾 数据库</button>
-      <button :class="{ active: tab === 'workflow' }" @click="tab = 'workflow'">🔁 工作流</button>
-      <button :class="{ active: tab === 'docs' }" @click="tab = 'docs'">📁 文档管理</button>
-    </div>
+    <!-- 未登录 → 登录/注册页 -->
+    <LoginPage v-if="!loggedIn && page === 'login'" @login-success="handleLoginSuccess" @switch="page = 'register'" />
+    <RegisterPage v-if="!loggedIn && page === 'register'" @switch="page = 'login'" />
 
-    <!-- 页面内容 -->
-    <ChatView v-if="tab === 'chat'" />
-    <NL2SQLChat v-if="tab === 'nl2sql'" />
-    <WorkflowChat v-if="tab === 'workflow'" />
-    <DocManager v-if="tab === 'docs'" />
+    <!-- 已登录 → 主界面 -->
+    <template v-if="loggedIn">
+      <!-- 标签切换 -->
+      <div class="tabs">
+        <button :class="{ active: tab === 'chat' }" @click="tab = 'chat'">💬 问答(Agent)</button>
+        <button :class="{ active: tab === 'nl2sql' }" @click="tab = 'nl2sql'">💾 数据库</button>
+        <button :class="{ active: tab === 'workflow' }" @click="tab = 'workflow'">🔁 工作流</button>
+        <button :class="{ active: tab === 'docs' }" @click="tab = 'docs'">📁 文档管理</button>
+      </div>
+
+      <!-- 页面内容 -->
+      <ChatView v-if="tab === 'chat'" />
+      <NL2SQLChat v-if="tab === 'nl2sql'" />
+      <WorkflowChat v-if="tab === 'workflow'" />
+      <DocManager v-if="tab === 'docs'" />
+    </template>
   </div>
 </template>
 
@@ -28,8 +38,26 @@ import ChatView from '../view/ChatView.vue'
 import NL2SQLChat from '../view/NL2SQLChat.vue'
 import WorkflowChat from '../view/WorkflowChat.vue'
 import DocManager from '../view/DocManager.vue'
+import LoginPage from '../view/LoginPage.vue'
+import RegisterPage from '../view/RegisterPage.vue'
 
 const tab = ref('chat')
+const page = ref('login')        // 'login' | 'register'
+const loggedIn = ref(!!localStorage.getItem('token'))
+
+function handleLoginSuccess(data) {
+  // token 存储 → 你统一放到 api.js 管理
+  localStorage.setItem('token', data.token)
+  localStorage.setItem('user_id', data.user_id)
+  loggedIn.value = true
+}
+
+function handleLogout() {
+  localStorage.removeItem('token')
+  localStorage.removeItem('user_id')
+  loggedIn.value = false
+  page.value = 'login'
+}
 </script>
 
 <style>
@@ -56,6 +84,24 @@ body {
   font-size: 18px;
   font-weight: 600;
   color: #333;
+  flex: 1;
+}
+.header-right {
+  display: flex;
+  align-items: center;
+}
+.btn-logout {
+  padding: 6px 16px;
+  font-size: 13px;
+  color: #666;
+  background: none;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.btn-logout:hover {
+  color: #e74c3c;
+  border-color: #e74c3c;
 }
 
 /* ===== 标签栏 ===== */

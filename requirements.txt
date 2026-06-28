@@ -33,6 +33,10 @@ jieba==0.42.1
 requests==2.34.2                 # HTTP 请求（天气查询）
 python-dotenv==1.2.2             # 环境变量加载
 
+# ---- 认证 ----
+pyjwt==2.10.1                    # JWT token 生成/验证
+bcrypt==4.2.1                    # 密码哈希
+
 # ---- 测试 ----
 pytest==8.3.4
 

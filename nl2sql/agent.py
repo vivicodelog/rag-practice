@@ -18,7 +18,7 @@ _project_root = os.path.dirname(_nl2sql_dir)
 sys.path.insert(0, _project_root)
 sys.path.insert(0, _nl2sql_dir)
 
-from database import get_connection, close
+from nl2sql.database import get_connection, close
 from rag_forge.config import settings
 from rag_forge.agent.agent import create_llm
 
@@ -174,13 +174,6 @@ SQL："""
 
 SQL："""
         else:
-            # ⚠️ 作业：写最后一次的 prompt
-            # attempt == 2，这是最后一次了
-            # 告诉 LLM "这是最后一次尝试，如果还不对就输出中文解释"
-            # 中文解释直接用来当 error_message 返回给用户
-            #
-            # 大概结构：开头说"最后一次"，中间跟修正 prompt 一样，
-            # 最后加上"如果还是无法生成正确的 SELECT 查询，直接输出中文解释错误原因"
             current_prompt = f"""最后一次，你是一个 SQLite 专家。根据下面的数据库结构，把错误的SQL重新生成正确的 SQL。
 
 数据库结构：
@@ -228,7 +221,6 @@ SQL："""
     #    只在执行成功时做（error_message 为空）
     explanation = None
     if not error_message:
-        # ⚠️ 作业：写解释 prompt
         # 把 sql 传给 LLM，让它用一句话说清楚这条 SQL 干什么
         # 要求：不要列名，不要技术术语，只说"查什么、从哪查、什么条件"
         # 提示：重新 invok 一次 llm，用简短的 prompt

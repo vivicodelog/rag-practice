@@ -24,7 +24,7 @@ router = APIRouter()
 
 
 @router.get("/chat/workflow/stream")
-def stream_workflow(question: str = Query(..., description="用户问题"),history: str = Query("[]"),session_id: str = None):
+def stream_workflow(question: str = Query(..., description="用户问题"),history: str = Query("[]"),session_id: str|None = None):
     """
     SSE 流式接口。
 
@@ -102,7 +102,7 @@ def stream_workflow(question: str = Query(..., description="用户问题"),histo
 
 
 @router.get("/chat/agent/stream")
-def stream_agent(question: str = Query(..., description="用户问题"),history: str = Query("[]"),session_id: str = None):
+def stream_agent(question: str = Query(..., description="用户问题"),history: str = Query("[]"),session_id: str|None = None):
     """                                                         history 参数收到的是 [{"role":"user","content":"hi"}] —— 一个JSON 格式的字符串
     SSE 流式问答。
 

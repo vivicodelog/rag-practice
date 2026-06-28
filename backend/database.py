@@ -45,44 +45,60 @@ def init_db(db=None):
 
         CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
         CREATE INDEX IF NOT EXISTS idx_sessions_mode ON sessions(mode);
+
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );       
+                       
     """)
+    try:
+        conn.execute("ALTER TABLE sessions ADD COLUMN user_id TEXT REFERENCES users(id)")
+    except sqlite3.OperationalError:
+        pass  # 列已存在
+
     conn.commit()
 
-def create_session(mode: str, title: str = "新对话"):
+def create_session(mode: str, title: str = "新对话",user_id: str|None = None):
     conn = get_db()
     session_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     conn.execute("""
-        INSERT INTO sessions (id, mode, title, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?)
-    """, (session_id, mode, title, now, now))
+        INSERT INTO sessions (id, mode, title, created_at, updated_at,user_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (session_id, mode, title, now, now, user_id))
     conn.commit()
-    row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
-    # 关键：把刚插入的行查出来，转成 dict 返回
+    row = conn.execute("""
+        SELECT s.*, 0 AS message_count
+        FROM sessions s
+        WHERE s.id = ?
+    """, (session_id,)).fetchone()
     return dict(row)
 
-def get_sessions(mode: str):
+def get_sessions(mode: str,user_id: str):
     conn = get_db()
     rows = conn.execute("""
         SELECT s.*, COUNT(m.id) AS message_count
         FROM sessions s
         LEFT JOIN messages m ON m.session_id = s.id
-        WHERE s.mode = ?
+        WHERE s.mode = ? AND s.user_id = ?
         GROUP BY s.id
         ORDER BY s.updated_at DESC
-    """, (mode,)).fetchall()
+    """, (mode,user_id,)).fetchall()
     return [dict(r) for r in rows]   # 空列表也安全
 
 
-def get_session(session_id: str):
+def get_session(session_id: str,user_id: str):
     conn = get_db()
     row = conn.execute("""
         SELECT s.*, COUNT(m.id) AS message_count
         FROM sessions s
         LEFT JOIN messages m ON m.session_id = s.id
-        WHERE s.id = ?
+        WHERE s.id = ? AND s.user_id = ?
         GROUP BY s.id
-    """, (session_id,)).fetchone()
+    """, (session_id,user_id)).fetchone()
     if row is None:
         return None
     return dict(row)
@@ -104,7 +120,7 @@ def get_messages(session_id: str):
         result.append(d)
     return result
 
-def save_message(session_id: str, role: str, content: str, sql: str = None, cols = None, rows_data = None, error = None):
+def save_message(session_id: str, role: str, content: str, sql: str|None = None, cols = None, rows_data = None, error = None):
     conn = get_db()
     now = datetime.now(timezone.utc).isoformat()
     # 1. 往 messages 表插一条
@@ -117,9 +133,62 @@ def save_message(session_id: str, role: str, content: str, sql: str = None, cols
     conn.commit()
 
 
-def delete_session(session_id: str):
-    conn = get_db()    
-    conn.execute("""DELETE FROM messages WHERE session_id = ?""", (session_id,))
-    conn.execute("""DELETE FROM sessions WHERE id = ?""", (session_id,))
+def delete_session(session_id: str,user_id: str):
+    conn = get_db()
+    conn.execute("""DELETE FROM messages WHERE session_id = ? """, (session_id,))
+    conn.execute("""DELETE FROM sessions WHERE id = ? AND user_id = ?""", (session_id,user_id))
     conn.commit()
+
+
+# ── 用户 CRUD ──────────────────────────────────────────
+
+
+def create_user(username: str, password_hash: str) -> dict:
+    """
+    创建用户，返回用户 dict：{id, username, password_hash, created_at}。
+
+    流程：
+        - uuid4 生成 id
+        - _now() 记 created_at
+        - INSERT INTO users
+        - commit 后 SELECT * 回读（和 create_session 一样的模式）
+        - 返回 dict(row)
+    """
+    conn = get_db()
+    id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute("""
+        INSERT INTO users (id, username, password_hash, created_at)
+        VALUES (?, ?, ?, ?)
+    """, (id, username, password_hash, now))
+    conn.commit()
+    row = conn.execute("""
+        SELECT * FROM users WHERE id = ?
+    """, (id,)).fetchone()
+    return dict(row)
+
+
+def get_user_by_username(username: str) -> dict | None:
+    """
+    按用户名查用户（登录时用）。
+    SELECT * FROM users WHERE username = ? → fetchone
+    查到返回 dict，没查到返回 None。
+    """
+    conn = get_db()
+    row = conn.execute("""
+        SELECT * FROM users WHERE username = ?
+    """, (username,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_user_by_id(user_id: str) -> dict | None:
+    """
+    按 id 查用户（/auth/me 时用）。
+    同上，WHERE id = ?。
+    """
+    conn = get_db()
+    row = conn.execute("""
+        SELECT * FROM users WHERE id = ?
+    """, (user_id,)).fetchone()
+    return dict(row) if row else None
 

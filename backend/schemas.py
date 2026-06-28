@@ -4,7 +4,7 @@
 定义 API 的数据结构，FastAPI 会自动校验参数类型。
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
 
 
@@ -87,8 +87,19 @@ class NL2SQLResponse(BaseModel):
     explanation: Optional[str] = None  # ← SQL 大白话解释（比如"查询所有作者的名字和国籍"）
 
 class SessionCreateRequest(BaseModel):
-    """创建会话请求"""
     mode: str
+    title: Optional[str] = "新对话"
+
+    @field_validator("mode")
+    @classmethod
+    def validate_mode(cls, v):
+        # v 是传入的 mode 值
+        # 如果 v 不在 ['agent', 'workflow', 'nl2sql'] 里
+        #   抛 ValueError，Pydantic 自动转 400
+        # 否则返回 v
+        if v not in ['agent', 'workflow', 'nl2sql']:
+            raise ValueError("mode must be one of ['agent', 'workflow', 'nl2sql']")
+        return v
 
 class SessionItem(BaseModel):
     """会话信息"""
