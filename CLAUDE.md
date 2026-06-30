@@ -16,7 +16,7 @@ AI 知识库问答助手，RAG + Agent + Workflow 全栈项目。
 - 回答简短有重点，不吹牛
 - 前端默认已掌握，不需要解释基础概念
 
-## 当前学习重点（2026-06-28）
+## 当前学习重点（2026-06-30）
 - ✅ 已跑通：FastAPI + Vue 分离、单 Agent（bind_tools）、Service 层
 - ✅ 已跑通：Workflow 编排（Researcher → Writer → Reviewer）
 - ✅ 已跑通：NL2SQL 三阶段（SQLite → Agent → column_meta → 前端展示 + 自愈循环 + 可解释性）
@@ -25,7 +25,8 @@ AI 知识库问答助手，RAG + Agent + Workflow 全栈项目。
 - ✅ 已跑通：Docker 部署（Dockerfile.backend + Dockerfile.frontend + docker-compose.yml）
 - ✅ 已跑通：多会话 Phase 1（SQLite 存储 + CRUD API + SessionSidebar 接入三个前端页面）
 - ✅ 已跑通：用户系统 Phase 2（JWT 登录/注册 + bcrypt 密码加密 + 会话数据隔离）
-- 🚧 待做：测试覆盖率（缺 test_auth_api.py）、旧文件清理（NL2SQLChat.vue 已删）
+- ✅ 已跑通：Auth 测试（test_auth_api.py 9 个用例，sessions 测试修复 auth_headers）
+- 🚧 待做：覆盖率提升（backend 47%，缺 chat/sse/documents 测试）、旧文件清理（HelloWorld.vue、rag_forge/ui/app.py）
 
 ## 关键文件索引
 | 文件 | 说明 |
